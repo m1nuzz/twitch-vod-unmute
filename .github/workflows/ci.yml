@@ -17,8 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -26,7 +26,7 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -37,7 +37,7 @@ jobs:
       - name: Package extension
         if: success()
         run: npm run package
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: success()
         with:
           name: twitch-vod-unmute-extension
@@ -45,7 +45,7 @@ jobs:
           retention-days: 14
       - name: Upload failure screenshots
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-screenshots
           path: test/.build/*.png

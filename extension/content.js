@@ -844,14 +844,16 @@
     el.dlBar = h("i", "vxr-dl-bar");
     el.dlBarFill = h("b", "", "");
     el.dlBar.appendChild(el.dlBarFill);
-    el.rowDl.appendChild(el.dlBtn);
-    el.rowDl.appendChild(el.dlUn);
+    var dlPair = h("div", "vxr-pair");
+    dlPair.appendChild(el.dlBtn);
+    dlPair.appendChild(el.dlUn);
+    el.rowDl.appendChild(dlPair);
     el.rowDl.appendChild(el.dlNote);
     el.rowDl.appendChild(el.dlBar);
     el.panel.appendChild(el.rowDl);
 
     el.rowMain = h("div", "vxr-row");
-    el.toggle = h("button", "vxr-btn vxr-btn-primary vxr-toggle", "Enable replacement");
+    el.toggle = h("button", "vxr-btn vxr-btn-primary vxr-toggle vxr-wide", "Enable replacement");
     el.toggle.addEventListener("click", function () {
       setActive(!running);
       render(true);
@@ -860,9 +862,11 @@
     el.cdnBtn.addEventListener("click", searchCdn);
     el.cdnOff = h("button", "vxr-btn", "Remove CDN mode");
     el.cdnOff.addEventListener("click", clearCdn);
+    var cdnPair = h("div", "vxr-pair");
+    cdnPair.appendChild(el.cdnBtn);
+    cdnPair.appendChild(el.cdnOff);
     el.rowMain.appendChild(el.toggle);
-    el.rowMain.appendChild(el.cdnBtn);
-    el.rowMain.appendChild(el.cdnOff);
+    el.rowMain.appendChild(cdnPair);
     el.panel.appendChild(el.rowMain);
 
     el.rowMode = h("div", "vxr-row");
@@ -875,12 +879,27 @@
     el.modeFull.addEventListener("click", function () {
       setMode("full");
     });
-    el.rowMode.appendChild(el.modeMuted);
-    el.rowMode.appendChild(el.modeFull);
+    var modePair = h("div", "vxr-pair");
+    modePair.appendChild(el.modeMuted);
+    modePair.appendChild(el.modeFull);
+    el.rowMode.appendChild(modePair);
     el.panel.appendChild(el.rowMode);
 
     el.rowOffset = h("div", "vxr-row");
     el.rowOffset.appendChild(h("span", "vxr-label", "offset"));
+    el.align = h("button", "vxr-btn vxr-mini", "Sync now");
+    el.align.addEventListener("click", function () {
+      if (!ctrl) setActive(true);
+      if (ctrl) {
+        S.offset = ctrl.alignNow();
+        savePrefs();
+      }
+      render(true);
+    });
+    el.rowOffset.appendChild(el.align);
+    el.offsetOut = h("span", "vxr-offset-out", "+0.00 c");
+    el.rowOffset.appendChild(el.offsetOut);
+    var steps = h("div", "vxr-steps");
     [
       [-1, "−1 s"],
       [-0.1, "−100 ms"],
@@ -896,20 +915,9 @@
         savePrefs();
         render(true);
       });
-      el.rowOffset.appendChild(b);
+      steps.appendChild(b);
     });
-    el.align = h("button", "vxr-btn vxr-mini", "Sync now");
-    el.align.addEventListener("click", function () {
-      if (!ctrl) setActive(true);
-      if (ctrl) {
-        S.offset = ctrl.alignNow();
-        savePrefs();
-      }
-      render(true);
-    });
-    el.rowOffset.appendChild(el.align);
-    el.offsetOut = h("span", "vxr-offset-out", "+0.00 c");
-    el.rowOffset.appendChild(el.offsetOut);
+    el.rowOffset.appendChild(steps);
     el.panel.appendChild(el.rowOffset);
 
     el.rowVol = h("div", "vxr-row");
@@ -1036,6 +1044,7 @@
     el.dlBtn.classList.toggle("vxr-active", dlBusy);
     el.dlUn.disabled = dlBusy;
     el.dlUn.style.display = S.segments && !S.segments.length ? "none" : "";
+    el.dlNote.style.display = dlNote ? "" : "none";
     el.dlNote.textContent = dlNote;
     el.dlBar.style.display = dlBusy && dlPercent ? "" : "none";
     el.dlBarFill.style.width = dlPercent + "%";

@@ -17,6 +17,9 @@
   right: 12px;
   z-index: 9999;
   width: 372px;
+  max-height: calc(100% - 64px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 12px 12px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
@@ -96,6 +99,35 @@
   min-width: 62px;
 }
 
+.vxr-pair {
+  display: flex;
+  flex: 1 1 0;
+  gap: 6px;
+  min-width: 0;
+}
+
+.vxr-pair > .vxr-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+}
+
+.vxr-wide {
+  flex: 0 0 100%;
+  text-align: center;
+}
+
+.vxr-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  flex: 0 0 100%;
+}
+
+.vxr-steps > .vxr-btn {
+  text-align: center;
+}
+
 .vxr-btn {
   padding: 4px 9px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -148,6 +180,7 @@
 }
 
 .vxr-dl-note {
+  flex: 0 0 100%;
   max-width: 100%;
   white-space: normal;
 }
@@ -177,6 +210,7 @@
 }
 
 .vxr-seg-info {
+  margin-right: auto;
   color: #ffc27a;
   font-variant-numeric: tabular-nums;
 }

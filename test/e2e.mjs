@@ -311,6 +311,7 @@ try {
   await chooser.setFiles(path.join(FIX, "stream.mp3"));
   await page.waitForFunction(() => /replacement on/.test(document.querySelector("#vxr-panel .vxr-status").textContent), null, { timeout: 8000 });
   check("file loaded and engine armed", /replacement on/.test(await status()), (await status()).trim());
+  await page.screenshot({ path: path.join(BUILD, "panel.png") });
   await page.waitForFunction(() => document.querySelector(".vxr-track").readyState >= 2, null, { timeout: 8000 });
   const gateState = () =>
     page.evaluate(() => {

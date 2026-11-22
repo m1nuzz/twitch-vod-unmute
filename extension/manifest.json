@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Twitch VOD Unmute",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Replaces Twitch VOD audio with a local file (whole track or only muted ranges), previews the mute map, recovers originals from the CDN and downloads the unmuted track.",
   "permissions": ["storage", "declarativeNetRequest"],
   "host_permissions": [

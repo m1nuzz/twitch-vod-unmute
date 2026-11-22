@@ -10,6 +10,8 @@ const ROOT = path.dirname(url.fileURLToPath(import.meta.url));
 const EXT = path.join(ROOT, "..", "extension");
 const VOD = process.argv[2] || "2936051136";
 const TARGET = Number(process.argv[3] || 8);
+const UNMUTED = process.argv[4] === "unmuted";
+const DL_BTN = UNMUTED ? "#vxr-panel .vxr-dl-un" : "#vxr-panel .vxr-dl";
 const PROFILE = path.join(ROOT, ".build", "p-dl");
 fs.rmSync(PROFILE, { recursive: true, force: true });
 
@@ -44,9 +46,9 @@ await page.waitForSelector(".vxr-unmute", { timeout: 15000 });
 await page.click(".vxr-unmute");
 
 const note = () => page.textContent("#vxr-panel .vxr-dl-note");
-const btn = () => page.textContent("#vxr-panel .vxr-dl");
+const btn = () => page.textContent(DL_BTN);
 
-await page.click("#vxr-panel .vxr-dl");
+await page.click(DL_BTN);
 console.log("started          :", JSON.stringify((await btn()).trim()), JSON.stringify((await note()).trim().slice(0, 80)));
 console.log("activation       :", await page.evaluate(() => window.__activationAtPick));
 

@@ -20,7 +20,7 @@ npx playwright install chromium # one-time browser download for e2e
 npm run lint                    # ESLint flat config
 npm run format:check            # Prettier
 npm run test:unit               # 12 sync-engine checks, fake clocks
-npm run test:e2e                # 26 Playwright checks against a fake Twitch
+npm run test:e2e                # 29 Playwright checks against a fake Twitch
 npm test                        # unit + e2e (what CI runs)
 npm run package                 # validates the manifest and builds dist/*.zip
 ```
@@ -79,6 +79,13 @@ isolated-world boundaries reliably.
 total duration` after ~10 s. The file is generated in the tab and streamed through the File
   System Access API, so Chrome's download manager cannot own it (`chrome.downloads` needs a ready
   URL; buffering a multi-hour VOD in memory is not acceptable). Progress lives in the panel.
+- **Unmuted download**: only the `chunked` (source/1080p60) rendition keeps plain twins, and only
+  per segment. Both `audio_only` and `chunked` playlists use a 10 s grid, so an audio segment is
+  replaced only when whole chunks cover its range. Extract the chunk's AAC with
+  `new muxjs.mp4.Transmuxer({remux:false})` (audio-only init + fragment), normalise the `tfhd`
+  track ID (audio-only 256, source audio 257) and rewrite the fragment `tfdt` to the running
+  output timeline. Check that `mp4a` rate/channels match, otherwise keep the silent segment. This
+  path downloads the 1080p60 chunks themselves (~8 Mbps), so coverage and size are both partial.
 - **UI language is English.** Twitch localizes both the visible Share label and its aria-label, so
   locate the Share button by the share icon (`button svg path[d^="M13 6v10h-2V6"]`), with the
   English aria-label and a localized label list as fallbacks. Never rely on English text alone —

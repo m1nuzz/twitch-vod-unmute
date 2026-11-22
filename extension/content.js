@@ -287,6 +287,7 @@
       if (st.totalBytes) line += " / ~" + fmtMB(st.totalBytes) + " · " + dlPercent + "%";
       if (st.speed) line += " · " + fmtSpeed(st.speed);
       if (st.eta) line += " · ~" + fmtEta(st.eta) + " left";
+      if (st.unmuted && st.unmuted.total) line += " · unmuted " + st.unmuted.done + "/" + st.unmuted.total;
       if (st.note && st.note !== "downloading") line += " · " + st.note;
       dlNote = line;
     }
@@ -801,8 +802,7 @@
     el.panel.appendChild(el.rowFile);
 
     el.rowDl = h("div", "vxr-row");
-    el.dlBtn = h("button", "vxr-btn vxr-dl", "Download audio");
-    el.dlBtn.addEventListener("click", function () {
+    function beginDownload(unmuted) {
       if (dlBusy) {
         rpc("audioDownloadCancel", {}, 5000).catch(function () {});
         return;
@@ -816,7 +816,7 @@
       dlPercent = 0;
       dlNote = "preparing…";
       render(true);
-      rpc("audioDownloadStart", { vodId: S.vodId }, 15000).then(
+      rpc("audioDownloadStart", { vodId: S.vodId, unmuted: !!unmuted }, 15000).then(
         function (out) {
           if (!out || !out.ok) {
             dlBusy = false;
@@ -830,12 +830,22 @@
           render(true);
         }
       );
+    }
+    el.dlBtn = h("button", "vxr-btn vxr-dl", "Download audio");
+    el.dlBtn.addEventListener("click", function () {
+      beginDownload(false);
+    });
+    el.dlUn = h("button", "vxr-btn vxr-dl-un", "Download unmuted");
+    el.dlUn.title = "Splices in the 1080p60 originals that Twitch still has; downloads those video chunks, so coverage is partial";
+    el.dlUn.addEventListener("click", function () {
+      beginDownload(true);
     });
     el.dlNote = h("span", "vxr-file-name vxr-dl-note", "");
     el.dlBar = h("i", "vxr-dl-bar");
     el.dlBarFill = h("b", "", "");
     el.dlBar.appendChild(el.dlBarFill);
     el.rowDl.appendChild(el.dlBtn);
+    el.rowDl.appendChild(el.dlUn);
     el.rowDl.appendChild(el.dlNote);
     el.rowDl.appendChild(el.dlBar);
     el.panel.appendChild(el.rowDl);
@@ -1024,6 +1034,8 @@
     }
     el.dlBtn.textContent = dlBusy ? (dlPercent ? "Cancel download · " + dlPercent + "%" : "Cancel download") : "Download audio";
     el.dlBtn.classList.toggle("vxr-active", dlBusy);
+    el.dlUn.disabled = dlBusy;
+    el.dlUn.style.display = S.segments && !S.segments.length ? "none" : "";
     el.dlNote.textContent = dlNote;
     el.dlBar.style.display = dlBusy && dlPercent ? "" : "none";
     el.dlBarFill.style.width = dlPercent + "%";

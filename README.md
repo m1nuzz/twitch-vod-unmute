@@ -26,6 +26,9 @@ download the unmuted audio track as M4A — even while the VOD is still recordin
   exact per-segment DNR redirects, so the player itself fetches the audible original.
 - **Audio download** — saves the stream's `audio_only` playlist as a single M4A (AAC) with
   timestamps starting at 0. Works for finished VODs and for recordings that are still live.
+- **Unmuted download** — for muted ranges whose 1080p60 originals still exist on the CDN, extracts
+  their audio and splices it into the M4A on the same timeline. The panel reports how many muted
+  segments were recovered; purged originals stay silent.
 
 ## Install
 
@@ -55,7 +58,11 @@ The extension only runs on `https://www.twitch.tv/videos/<id>` pages.
    the same row has a progress bar. The button becomes **Cancel download · N%**; a cancelled
    download is discarded. For a still-recording VOD the extension keeps polling the playlist for
    new segments and finishes the file when the recording ends.
-6. **Disable replacement** returns Twitch's own audio.
+6. **Download unmuted** builds the same M4A but replaces muted segments with audio recovered from
+   the 1080p60 originals, where Twitch still has them. The note counts the recovered segments
+   (for example `unmuted 181 of 198`). Recovering a 30-minute muted stretch downloads roughly
+   2 GB of 1080p60 chunks; originals Twitch already purged stay silent.
+7. **Disable replacement** returns Twitch's own audio.
 
 The “drift N ms” indicator is the current audio-to-picture offset. Up to ~40 ms is inaudible
 (ITU-R BT.1359: 45 ms early / 125 ms late are the perception thresholds).
@@ -104,6 +111,15 @@ File System Access API. Playlists are parsed with videojs `m3u8-parser` (fallbac
 parser). A VOD that is still `RECORDING` has no `#EXT-X-ENDLIST`: the playlist is re-read every
 `max(3, targetDuration)` seconds and new segments are appended until the recording ends.
 
+The unmuted download parses the `audio_only` and `chunked` media playlists, which both use the
+same 10-second grid. Each muted audio segment is matched to the 1080p60 chunks covering the same
+range; the plain twin of every muted chunk is probed, and only a full cover is used. The chunk's
+AAC track is extracted with mux.js (`remux: false`, so no video), its track ID is normalised to
+the audio track's and the fragment's `tfdt` is rebased onto the output timeline. Twitch's 720p60,
+480p30, 360p30, 160p30 and audio_only renditions keep no muted originals — only `chunked` does.
+The sample format (AAC-LC, 48 kHz, stereo) is checked per segment; a mismatch falls back to the
+silent original instead of playing the chunk at the wrong rate.
+
 The M4A is generated inside the tab, so it cannot be handed to Chrome's own download manager:
 `chrome.downloads` needs a ready URL, and buffering a whole multi-hour VOD in memory is not an
 option. The file is streamed straight to the location chosen in the native Save dialog instead,
@@ -129,6 +145,8 @@ No network request leaves the Twitch page origin for account data; GQL calls are
 - Twitch segments have variable duration; segment indices cannot be derived from time, only
   discovered from the playlist.
 - CDN originals exist only for a subset of muted segments and disappear within hours.
+- Unmuted download recovers only those live originals and downloads the 1080p60 chunks themselves
+  (about 8 Mbps), so a long muted stretch can cost gigabytes.
 - In muted-only mode, if the mute map cannot be loaded, the extension behaves as full-track.
 
 ## Tests, CI and releases
@@ -137,7 +155,7 @@ No network request leaves the Twitch page origin for account data; GQL calls are
 npm install
 npm test                  # unit + browser e2e
 npm run test:unit         # 12 sync-engine checks with fake clocks
-npm run test:e2e          # 26 Playwright checks against a fake Twitch
+npm run test:e2e          # 29 Playwright checks against a fake Twitch
 npm run lint
 npm run format:check
 ```
@@ -153,7 +171,7 @@ Live probes (need a real Twitch VOD and network):
 ```
 node test/probe-mute-ui.mjs <id>      # player stays unmuted; mute button controls the stem
 node test/probe-modes.mjs <id>        # pointwise/full around a muted range, launcher gap
-node test/probe-download.mjs <id> [n] # download n+ segments, cancel, ffprobe the file
+node test/probe-download.mjs <id> [n] [unmuted] # download n+ segments, cancel, ffprobe the file
 node test/real-vod2.mjs <id> [t]      # full live pass: panel, map, replacement, CDN verdict
 ```
 

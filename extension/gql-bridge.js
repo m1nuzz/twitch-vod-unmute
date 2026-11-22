@@ -236,7 +236,7 @@
     document.dispatchEvent(new CustomEvent(DL_EVT, { detail: JSON.stringify(o) }));
   }
 
-  function audioPlaylist(vodId) {
+  function audioPlaylist(vodId, withChunk) {
     var query = 'query VxrToken($id: ID!) { videoPlaybackAccessToken(id: $id, params: {platform: "web", playerBackend: "mediaplayer", playerType: "site"}) { value signature } }';
     return fetch("https://gql.twitch.tv/gql", {
       method: "POST",
@@ -271,6 +271,7 @@
           .then(function (master) {
             var lines = master.split(/\r?\n/);
             var audio = "";
+            var chunk = "";
             var bandwidth = 0;
             var pending = 0;
             for (var i = 0; i < lines.length; i++) {
@@ -285,14 +286,22 @@
               if (/audio_only\//.test(s)) {
                 audio = s;
                 bandwidth = pending;
-                break;
+              } else if (/\/chunked\/|^chunked\//.test(s)) {
+                chunk = s;
               }
               pending = 0;
             }
             if (!audio) throw new Error("the VOD has no audio_only track");
-            return mediaPlaylist(new URL(audio, usherAbs).href).then(function (plan) {
+            var audioUrl = new URL(audio, usherAbs).href;
+            var chunkUrl = chunk ? new URL(chunk, usherAbs).href : "";
+            return mediaPlaylist(audioUrl).then(function (plan) {
               plan.bitrate = bandwidth;
-              return plan;
+              plan.chunkUrl = withChunk ? chunkUrl : "";
+              if (!withChunk || !chunkUrl) return plan;
+              return mediaPlaylist(chunkUrl).then(function (cp) {
+                plan.chunk = cp;
+                return plan;
+              });
             });
           });
       });
@@ -316,6 +325,9 @@
           durations: segs.map(function (s) {
             return Number(s.duration) || 0;
           }),
+          muted: segs.map(function (s) {
+            return /-muted\./.test(s.uri || "");
+          }),
           duration: durSum,
           target: Number(manifest.targetDuration) || 6,
           end: !!manifest.endList
@@ -325,6 +337,7 @@
     var lines = text.split(/\r?\n/);
     var segments = [];
     var durations = [];
+    var muted = [];
     var duration = 0;
     var segDur = 0;
     var target = 6;
@@ -354,10 +367,11 @@
       }
       segments.push(abs);
       durations.push(segDur);
+      muted.push(/-muted\./.test(abs));
       duration += segDur;
       segDur = 0;
     }
-    return { segments: segments, durations: durations, duration: duration, target: target, end: end };
+    return { segments: segments, durations: durations, muted: muted, duration: duration, target: target, end: end };
   }
 
   function mediaPlaylist(url) {
@@ -432,6 +446,197 @@
     return { totalBytes: total, speed: speed, eta: eta };
   }
 
+  function planStarts(plan) {
+    if (plan.starts) return plan.starts;
+    var t = 0;
+    plan.starts = plan.segments.map(function (_, i) {
+      var s = t;
+      t += (plan.durations && plan.durations[i]) || 0;
+      return s;
+    });
+    return plan.starts;
+  }
+
+  /* chunked (1080p60) segments tile the same VOD timeline; a muted audio segment can
+     only be replaced when whole chunks cover its range, otherwise the splice would shift. */
+  function chunkCover(chunk, start, end) {
+    if (!chunk || !chunk.segments.length) return null;
+    var starts = planStarts(chunk);
+    var lo = 0;
+    var hi = starts.length - 1;
+    var first = starts.length;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (starts[mid] + (chunk.durations[mid] || 0) > start + 0.01) {
+        first = mid;
+        hi = mid - 1;
+      } else lo = mid + 1;
+    }
+    var out = [];
+    var t = start;
+    var i = first;
+    while (t < end - 0.01) {
+      if (i >= starts.length || Math.abs(starts[i] - t) > 0.05) return null;
+      var d = chunk.durations[i] || 0;
+      if (d <= 0) return null;
+      out.push(i);
+      t += d;
+      i++;
+    }
+    return Math.abs(t - end) <= 0.2 ? out : null;
+  }
+
+  function plainOfUrl(url) {
+    return url.replace(/-muted(\.[^/?#]+)/, "$1");
+  }
+
+  function dlPlainOk(st, url) {
+    if (st.plains[url]) return st.plains[url];
+    st.plains[url] = fetch(url, { credentials: "omit", signal: st.abort.signal })
+      .then(function (r) {
+        var ok = r.ok;
+        if (r.body) r.body.cancel().catch(function () {});
+        return ok;
+      })
+      .catch(function () {
+        return false;
+      });
+    return st.plains[url];
+  }
+
+  function dlBoxType(view, off) {
+    return String.fromCharCode(view.getUint8(off), view.getUint8(off + 1), view.getUint8(off + 2), view.getUint8(off + 3));
+  }
+
+  function dlFindBox(view, start, end, type) {
+    var off = start;
+    while (off + 8 <= end) {
+      var size = view.getUint32(off);
+      if (size < 8 || off + size > end) return null;
+      if (dlBoxType(view, off + 4) === type) return { off: off, size: size };
+      off += size;
+    }
+    return null;
+  }
+
+  function dlFlags(view, off) {
+    return (view.getUint8(off) << 16) | (view.getUint8(off + 1) << 8) | view.getUint8(off + 2);
+  }
+
+  function dlFragInfo(buf) {
+    var view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    var moof = dlFindBox(view, 0, buf.byteLength, "moof");
+    if (!moof) return null;
+    var traf = dlFindBox(view, moof.off + 8, moof.off + moof.size, "traf");
+    if (!traf) return null;
+    var tfhd = dlFindBox(view, traf.off + 8, traf.off + traf.size, "tfhd");
+    var tfdt = dlFindBox(view, traf.off + 8, traf.off + traf.size, "tfdt");
+    var trun = dlFindBox(view, traf.off + 8, traf.off + traf.size, "trun");
+    if (!tfhd || !tfdt || !trun) return null;
+    var trunFlags = dlFlags(view, trun.off + 9);
+    var count = view.getUint32(trun.off + 12);
+    var p = trun.off + 16;
+    if (trunFlags & 0x1) p += 4;
+    if (trunFlags & 0x4) p += 4;
+    var dur = 0;
+    if (trunFlags & 0x100) {
+      for (var i = 0; i < count; i++) {
+        dur += view.getUint32(p);
+        p += 4;
+        if (trunFlags & 0x200) p += 4;
+        if (trunFlags & 0x400) p += 4;
+        if (trunFlags & 0x800) p += 4;
+      }
+    } else {
+      var tfhdFlags = dlFlags(view, tfhd.off + 9);
+      var q = tfhd.off + 16;
+      if (tfhdFlags & 0x1) q += 8;
+      if (tfhdFlags & 0x2) q += 4;
+      dur = (tfhdFlags & 0x8 ? view.getUint32(q) : 1024) * count;
+    }
+    return { trackId: view.getUint32(tfhd.off + 12), dur: dur, tfhdOff: tfhd.off, tfdtOff: tfdt.off, tfdtV1: view.getUint8(tfdt.off + 8) === 1 };
+  }
+
+  function dlPatchFrag(buf, base, trackId) {
+    var copy = new Uint8Array(buf.byteLength);
+    copy.set(buf);
+    var info = dlFragInfo(copy);
+    if (!info) return { data: copy, dur: 0, trackId: trackId };
+    var view = new DataView(copy.buffer);
+    var tid = trackId || info.trackId;
+    view.setUint32(info.tfhdOff + 12, tid);
+    if (info.tfdtV1) {
+      view.setUint32(info.tfdtOff + 12, Math.floor(base / 4294967296));
+      view.setUint32(info.tfdtOff + 16, base - Math.floor(base / 4294967296) * 4294967296);
+    } else view.setUint32(info.tfdtOff + 12, base);
+    return { data: copy, dur: info.dur, trackId: tid };
+  }
+
+  function dlAudioEvents(buf) {
+    return new Promise(function (resolve, reject) {
+      var tr = new window.muxjs.mp4.Transmuxer({ remux: false });
+      var out = [];
+      tr.on("data", function (seg) {
+        if (seg.type === "audio" && seg.data) out.push({ init: seg.initSegment || null, data: seg.data });
+      });
+      tr.on("done", function () {
+        resolve(out);
+      });
+      try {
+        tr.push(new Uint8Array(buf));
+        tr.flush();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function dlTrackFormat(init) {
+    var view = new DataView(init.buffer, init.byteOffset, init.byteLength);
+    var moov = dlFindBox(view, 0, init.byteLength, "moov");
+    var trak = moov && dlFindBox(view, moov.off + 8, moov.off + moov.size, "trak");
+    var mdia = trak && dlFindBox(view, trak.off + 8, trak.off + trak.size, "mdia");
+    var minf = mdia && dlFindBox(view, mdia.off + 8, mdia.off + mdia.size, "minf");
+    var stbl = minf && dlFindBox(view, minf.off + 8, minf.off + minf.size, "stbl");
+    var stsd = stbl && dlFindBox(view, stbl.off + 8, stbl.off + stbl.size, "stsd");
+    var entry = stsd && dlFindBox(view, stsd.off + 16, stsd.off + stsd.size, "mp4a");
+    if (!entry) return null;
+    return { channels: view.getUint16(entry.off + 24), rate: view.getUint32(entry.off + 32) >>> 16 };
+  }
+
+  /* source and audio_only are both AAC-LC 48 kHz stereo on Twitch; a mismatch would
+     make the inserted chunks play at the wrong rate, so refuse the splice instead. */
+  function dlSameFormat(a, b) {
+    var fa = dlTrackFormat(a);
+    var fb = dlTrackFormat(b);
+    if (!fa || !fb) return true;
+    return fa.rate === fb.rate && fa.channels === fb.channels;
+  }
+
+  function dlUnmutedParts(st, buf, base) {
+    return dlAudioEvents(buf).then(function (events) {
+      var out = { init: null, parts: [], dur: 0, trackId: st.trackId, skip: false };
+      for (var i = 0; i < events.length; i++) {
+        var ev = events[i];
+        if (ev.init) {
+          if (!st.init) {
+            if (!out.init) out.init = ev.init;
+          } else if (!dlSameFormat(st.init, ev.init)) {
+            out.parts = [];
+            out.skip = true;
+            return out;
+          }
+        }
+        if (!ev.data) continue;
+        var patched = dlPatchFrag(ev.data, base + out.dur, out.trackId);
+        if (!out.trackId) out.trackId = patched.trackId;
+        out.parts.push(patched.data);
+        out.dur += patched.dur;
+      }
+      return out;
+    });
+  }
+
   function dlProgress(st, plan) {
     var now = Date.now();
     if (st.pos !== plan.segments.length && now - st.lastSend < 800) return;
@@ -445,6 +650,7 @@
       totalBytes: rate.totalBytes,
       speed: rate.speed,
       eta: rate.eta,
+      unmuted: st.unmuted ? { done: st.recovered || 0, total: st.mutedTotal || 0 } : null,
       note: plan.end ? "downloading" : "downloading (recording is still live)"
     });
   }
@@ -491,22 +697,115 @@
       st.etaOn = !!p.end;
       st.mediaDuration = p.duration || 0;
       st.totalBytes = p.end && p.bitrate && p.duration ? Math.round((p.bitrate / 8) * p.duration) : 0;
+      if (st.unmuted && p.muted) {
+        var n = 0;
+        for (var i = 0; i < p.muted.length; i++) if (p.muted[i]) n++;
+        st.mutedTotal = n;
+      }
       return p;
     }
     function refill() {
-      return audioPlaylist(st.vodId).then(planInfo);
+      return audioPlaylist(st.vodId, st.unmuted).then(planInfo);
+    }
+    function dlSources(p, idx) {
+      var url = p.segments[idx];
+      if (!st.unmuted || st.noChunks || !p.muted || !p.muted[idx] || !p.chunk) return Promise.resolve({ urls: [url], unmuted: false });
+      var start = planStarts(p)[idx];
+      var end = start + ((p.durations && p.durations[idx]) || 0);
+      var cover = chunkCover(p.chunk, start, end);
+      if (!cover) return Promise.resolve({ urls: [url], unmuted: false });
+      var urls = [];
+      var chain = Promise.resolve();
+      cover.forEach(function (ci) {
+        chain = chain.then(function () {
+          if (st.cancelled) return;
+          var cu = p.chunk.segments[ci];
+          if (!/-muted\./.test(cu)) {
+            urls.push(cu);
+            return;
+          }
+          return dlPlainOk(st, plainOfUrl(cu)).then(function (ok) {
+            if (ok) urls.push(plainOfUrl(cu));
+          });
+        });
+      });
+      return chain.then(function () {
+        return urls.length === cover.length ? { urls: urls, unmuted: true } : { urls: [url], unmuted: false };
+      });
+    }
+    function consume(urls) {
+      if (!st.unmuted) {
+        var plain = Promise.resolve();
+        urls.forEach(function (u) {
+          plain = plain.then(function () {
+            return dlFetchSeg(st, u).then(function (buf) {
+              tr.push(new Uint8Array(buf));
+              tr.flush();
+            });
+          });
+        });
+        return plain.then(function () {
+          return true;
+        });
+      }
+      var buffered = [];
+      var segDur = 0;
+      var init = null;
+      var trackId = st.trackId;
+      var bad = false;
+      var queue = Promise.resolve();
+      urls.forEach(function (u) {
+        queue = queue.then(function () {
+          if (bad) return;
+          return dlFetchSeg(st, u).then(function (buf) {
+            return dlUnmutedParts(st, buf, st.outSamples + segDur).then(function (seg) {
+              if (seg.skip) {
+                bad = true;
+                return;
+              }
+              buffered.push(seg);
+              segDur += seg.dur;
+              if (!init && seg.init) init = seg.init;
+              if (!trackId) trackId = seg.trackId;
+            });
+          });
+        });
+      });
+      return queue.then(function () {
+        if (bad) return false;
+        if (!st.initDone && init) {
+          dlWrite(st, init);
+          st.init = init;
+          st.initDone = true;
+        }
+        if (!st.trackId) st.trackId = trackId;
+        for (var i = 0; i < buffered.length; i++) {
+          for (var k = 0; k < buffered[i].parts.length; k++) dlWrite(st, buffered[i].parts[k]);
+          st.outSamples += buffered[i].dur;
+        }
+        return true;
+      });
     }
     function step() {
       if (st.cancelled) return Promise.reject(dlAbortError());
       if (st.pos < plan.segments.length) {
-        var url = plan.segments[st.pos];
-        return dlFetchSeg(st, url).then(function (buf) {
-          if (plan.durations) st.durationDone += plan.durations[st.pos] || 0;
-          st.pos++;
-          tr.push(new Uint8Array(buf));
-          tr.flush();
-          dlProgress(st, plan);
-          return step();
+        var idx = st.pos;
+        return dlSources(plan, idx).then(function (picked) {
+          return consume(picked.urls)
+            .then(function (ok) {
+              if (ok === false) {
+                picked.unmuted = false;
+                st.noChunks = true;
+                return consume([plan.segments[idx]]);
+              }
+            })
+            .then(function () {
+              if (picked.unmuted) st.recovered++;
+              if (plan.durations) st.durationDone += plan.durations[idx] || 0;
+              st.pos++;
+              dlProgress(st, plan);
+              return step();
+            });
         });
       }
       if (plan.end) return Promise.resolve();
@@ -519,13 +818,19 @@
         totalBytes: rate.totalBytes,
         speed: rate.speed,
         eta: rate.eta,
+        unmuted: st.unmuted ? { done: st.recovered || 0, total: st.mutedTotal || 0 } : null,
         note: "waiting for new segments"
       });
       return dlSleep(st, Math.max(3, plan.target))
         .then(function () {
-          return mediaPlaylist(plan.mediaUrl);
+          var jobs = [mediaPlaylist(plan.mediaUrl)];
+          if (st.unmuted && plan.chunkUrl) jobs.push(mediaPlaylist(plan.chunkUrl));
+          return Promise.all(jobs);
         })
-        .then(function (p) {
+        .then(function (ps) {
+          var p = ps[0];
+          p.chunkUrl = plan.chunkUrl;
+          if (ps[1]) p.chunk = ps[1];
           planInfo(p);
           return step();
         });
@@ -542,6 +847,7 @@
           totalBytes: st.totalBytes,
           speed: 0,
           eta: 0,
+          unmuted: st.unmuted ? { done: 0, total: st.mutedTotal || 0 } : null,
           note: p.end ? "downloading" : "downloading (recording is still live)"
         });
         return step();
@@ -555,7 +861,9 @@
       })
       .then(function () {
         if (st.mem) memSave(st);
-        dlFinish(st, "done", st.name);
+        var note = st.name;
+        if (st.unmuted) note += " · unmuted " + (st.recovered || 0) + " of " + (st.mutedTotal || 0) + " muted segments";
+        dlFinish(st, "done", note);
       })
       .catch(function (e) {
         var cancelled = st.cancelled || (e && e.name === "AbortError");
@@ -568,15 +876,16 @@
       });
   }
 
-  function startAudioDownload(vodId) {
+  function startAudioDownload(vodId, unmuted) {
     if (dlJob) {
       dlSend({ phase: "error", note: "download already running" });
       return;
     }
-    var name = "twitch-" + vodId + "-audio.m4a";
+    var name = "twitch-" + vodId + (unmuted ? "-unmuted" : "") + "-audio.m4a";
     var st = {
       vodId: String(vodId),
       name: name,
+      unmuted: !!unmuted,
       cancelled: false,
       ended: false,
       bytes: 0,
@@ -586,6 +895,13 @@
       etaOn: false,
       mediaDuration: 0,
       durationDone: 0,
+      recovered: 0,
+      mutedTotal: 0,
+      plains: {},
+      noChunks: false,
+      outSamples: 0,
+      initDone: false,
+      trackId: 0,
       startedAt: Date.now(),
       lastSend: 0,
       chain: Promise.resolve(),
@@ -746,7 +1062,7 @@
       return;
     }
     if (msg.type === "audioDownloadStart") {
-      startAudioDownload(msg.payload.vodId);
+      startAudioDownload(msg.payload.vodId, !!msg.payload.unmuted);
       reply(msg.id, { ok: true });
       return;
     }

@@ -110,6 +110,12 @@
   background: rgba(255, 255, 255, 0.16);
 }
 
+.vxr-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .vxr-btn-primary {
   border-color: #9147ff;
   background: #6441a5;

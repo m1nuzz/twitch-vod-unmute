@@ -47,7 +47,15 @@ const MUTE_MAP = {
 };
 
 let cdnAlive = false;
+let unmutedFixture = false;
 const requests = [];
+
+const AV_TS = path.join(BUILD, "av10.ts");
+try {
+  if (!fs.existsSync(AV_TS)) {
+    execFileSync("ffmpeg", ["-y", "-v", "error", "-i", path.join(FIX, "vod.mp4"), "-t", "10", "-c", "copy", "-f", "mpegts", AV_TS], { stdio: "pipe" });
+  }
+} catch (e) {}
 
 function readBody(req) {
   return new Promise((r) => {
@@ -73,7 +81,7 @@ function audioPlaylist() {
   const out = ["#EXTM3U", "#EXT-X-VERSION:3", "#EXT-X-TARGETDURATION:3"];
   for (let i = 0; i < n; i++) {
     out.push("#EXTINF:10.000,");
-    out.push(`seg${i}.ts`);
+    out.push(`seg${i}${unmutedFixture && i === 1 ? "-muted" : ""}.ts`);
   }
   if (audioPolls > 1) out.push("#EXT-X-ENDLIST");
   return out.join("\n");
@@ -81,6 +89,20 @@ function audioPlaylist() {
 
 /* media playlist in the shape Twitch serves: 2 s segments, muted names for silenced ranges */
 function mediaPlaylist() {
+  if (unmutedFixture) {
+    return [
+      "#EXTM3U",
+      "#EXT-X-VERSION:3",
+      "#EXT-X-TARGETDURATION:10",
+      "#EXTINF:10.000,",
+      "0.ts",
+      "#EXTINF:10.000,",
+      "1-muted.ts",
+      "#EXTINF:10.000,",
+      "2.ts",
+      "#EXT-X-ENDLIST"
+    ].join("\n");
+  }
   const out = ["#EXTM3U", "#EXT-X-VERSION:3", "#EXT-X-TARGETDURATION:2"];
   for (let i = 0; i < 130; i++) {
     const isMuted = [
@@ -144,8 +166,8 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "application/vnd.apple.mpegurl" });
     return res.end(audioPlaylist());
   }
-  if (/^\/videos\/2926037201\/audio_only\/seg\d+\.ts$/.test(u.pathname)) {
-    const f = path.join(FIX, `seg${/seg(\d+)\.ts$/.exec(u.pathname)[1]}.ts`);
+  if (/^\/videos\/2926037201\/audio_only\/seg\d+(-muted)?\.ts$/.test(u.pathname)) {
+    const f = path.join(FIX, `seg${/seg(\d+)/.exec(u.pathname)[1]}.ts`);
     res.writeHead(200, { "Content-Type": "video/mp2t", "Access-Control-Allow-Origin": "*" });
     return fs.createReadStream(f).pipe(res);
   }
@@ -159,6 +181,12 @@ const server = http.createServer(async (req, res) => {
   if (/^\/videos\/2926037201\/(chunked|720p60)\/index-muted-X\.m3u8$/.test(u.pathname)) {
     res.writeHead(200, { "Content-Type": "application/vnd.apple.mpegurl" });
     return res.end(mediaPlaylist());
+  }
+  if (unmutedFixture && /^\/videos\/2926037201\/chunked\/[012]\.ts$/.test(u.pathname)) {
+    const idx = Number(/(\d)\.ts$/.exec(u.pathname)[1]);
+    const f = idx === 1 && fs.existsSync(AV_TS) ? AV_TS : path.join(FIX, `seg${idx}.ts`);
+    res.writeHead(200, { "Content-Type": "video/mp2t", "Access-Control-Allow-Origin": "*" });
+    return fs.createReadStream(f).pipe(res);
   }
   if (u.pathname === "/vod.mp4" || u.pathname === "/stream.mp3") return serveFile(req, res, path.join(FIX, path.basename(u.pathname)));
   if (u.pathname === "/videos/2926037201") return serveFile(req, res, path.join(ROOT, "page.html"));
@@ -427,6 +455,30 @@ try {
   const progressNote = dlNotes.find((n) => /downloading: \d+\/3 · .*\/ ~.* · \d+% · [\d.]+ (KB|MB)\/s/.test(n)) || "";
   const barBuilt = await page.evaluate(() => !!document.querySelector("#vxr-panel .vxr-dl-bar > b"));
   check("download shows percent, speed and time left", !!progressNote && barBuilt, `note="${progressNote}" bar=${barBuilt}`);
+
+  /* unmuted download: a muted audio segment is replaced with the recovered 1080p60 original */
+  unmutedFixture = true;
+  fs.rmSync(path.join(BUILD, "dl-2.m4a"), { force: true });
+  const unBefore = requests.length;
+  await page.click("#vxr-panel .vxr-dl-un");
+  await page.waitForFunction(() => /audio saved/.test(document.querySelector("#vxr-panel .vxr-dl-note").textContent), null, { timeout: 45000 }).catch(() => {});
+  const unNote = await page.textContent("#vxr-panel .vxr-dl-note");
+  const unFile = path.join(BUILD, "dl-2.m4a");
+  const unSize = fs.existsSync(unFile) ? fs.statSync(unFile).size : 0;
+  let unProbe = null;
+  if (unSize) {
+    try {
+      unProbe = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-show_entries", "stream=codec_name", "-of", "json", unFile]).toString());
+    } catch (e) {}
+  }
+  const unDuration = unProbe ? Number(unProbe.format.duration) : 0;
+  const unRequests = requests.slice(unBefore);
+  check(
+    "unmuted download swaps in the recovered original",
+    /unmuted 1 of 1/.test(unNote) && unSize > 200000 && Math.abs(unDuration - 30) < 1.5 && unRequests.includes("/videos/2926037201/chunked/1.ts"),
+    `note="${unNote.trim()}" size=${unSize} duration=${unDuration} chunked=${unRequests.filter((p) => /chunked/.test(p)).slice(0, 3)}`
+  );
+  unmutedFixture = false;
 
   /* real signal through the Web Audio graph (beeps every 2 s) */
   const ctxState = await page.evaluate(async () => {

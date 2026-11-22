@@ -18,7 +18,7 @@
     "eslint": "^10.15.0",
     "globals": "^17.14.0",
     "m3u8-parser": "^7.2.1",
-    "playwright": "1.63.0",
+    "playwright": "1.65.1",
     "prettier": "^3.10.1"
   }
 }

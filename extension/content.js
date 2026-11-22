@@ -39,7 +39,8 @@
     lengthSeconds: 0,
     mapError: "",
     cdn: "unknown",
-    note: ""
+    note: "",
+    contextLost: false
   };
 
   function h(tag, cls, text) {
@@ -90,23 +91,66 @@
 
   /* ---------- storage ---------- */
 
+  function extensionAlive() {
+    try {
+      return !!(window.chrome && chrome.runtime && chrome.runtime.id && chrome.storage && chrome.storage.local);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function markContextLost() {
+    if (S.contextLost) return;
+    S.contextLost = true;
+    S.note = "the extension was reloaded — refresh the page";
+    if (el.status) render(true);
+  }
+
   function loadPrefs() {
     return new Promise(function (resolve) {
-      if (!chrome.storage || !chrome.storage.local) return resolve({});
-      chrome.storage.local.get("vxr", function (data) {
-        resolve((data && data.vxr) || {});
-      });
+      var done = false;
+      var finish = function (prefs) {
+        if (done) return;
+        done = true;
+        resolve(prefs || {});
+      };
+      var guard = setTimeout(function () {
+        finish({});
+      }, 1500);
+      if (!extensionAlive()) {
+        clearTimeout(guard);
+        markContextLost();
+        return finish({});
+      }
+      try {
+        chrome.storage.local.get("vxr", function (data) {
+          clearTimeout(guard);
+          finish((data && data.vxr) || {});
+        });
+      } catch (e) {
+        clearTimeout(guard);
+        markContextLost();
+        finish({});
+      }
     });
   }
 
   function savePrefs() {
-    if (!chrome.storage || !chrome.storage.local) return;
-    chrome.storage.local.get("vxr", function (data) {
-      var prev = (data && data.vxr) || {};
-      var offsets = prev.offsets || {};
-      if (S.vodId) offsets[S.vodId] = S.offset;
-      chrome.storage.local.set({ vxr: { offsets: offsets, fileName: S.fileName, mode: S.mode } });
-    });
+    if (S.contextLost || !extensionAlive()) return;
+    try {
+      chrome.storage.local.get("vxr", function (data) {
+        try {
+          var prev = (data && data.vxr) || {};
+          var offsets = prev.offsets || {};
+          if (S.vodId) offsets[S.vodId] = S.offset;
+          chrome.storage.local.set({ vxr: { offsets: offsets, fileName: S.fileName, mode: S.mode } });
+        } catch (e) {
+          markContextLost();
+        }
+      });
+    } catch (e) {
+      markContextLost();
+    }
   }
 
   /* ---------- elements ---------- */
@@ -544,22 +588,30 @@
       var guard = setTimeout(function () {
         finish({ ok: true, late: true });
       }, 1500);
-      if (!chrome.storage || !chrome.storage.local) {
+      if (!extensionAlive()) {
         clearTimeout(guard);
-        return finish({ ok: false, error: "storage unavailable" });
+        markContextLost();
+        return finish({ ok: false, error: "extension context lost — refresh the page" });
       }
       try {
         chrome.storage.local.set({ vxrRules: value }, function () {
           clearTimeout(guard);
-          finish({ ok: !chrome.runtime.lastError, error: chrome.runtime.lastError && chrome.runtime.lastError.message });
+          var err = "";
+          try {
+            err = chrome.runtime.lastError && chrome.runtime.lastError.message;
+          } catch (e) {}
+          finish({ ok: !err, error: err });
         });
         try {
           chrome.runtime.sendMessage({ op: "cdnSync" }, function () {
-            void chrome.runtime.lastError;
+            try {
+              void chrome.runtime.lastError;
+            } catch (err) {}
           });
         } catch (e) {}
       } catch (e) {
         clearTimeout(guard);
+        markContextLost();
         finish({ ok: false, error: String(e) });
       }
     });
@@ -568,7 +620,9 @@
   function cdnInstall(rules) {
     try {
       chrome.runtime.sendMessage({ op: "cdnInstall", rules: rules }, function () {
-        void chrome.runtime.lastError;
+        try {
+          void chrome.runtime.lastError;
+        } catch (err) {}
       });
     } catch (e) {}
     return storageSet(rules);
@@ -1025,9 +1079,10 @@
     var drift = running && ctrl ? ctrl.state.driftMs : 0;
     var parts = [running ? "replacement on" : "replacement off"];
     if (running) parts.push("drift " + Math.round(drift) + " ms", phaseLabel(ctrl.state.phase));
-    if (S.note) parts.push("· " + S.note);
+    var warn = S.contextLost ? "the extension was reloaded — refresh the page" : S.note;
+    if (warn) parts.push("· " + warn);
     el.status.textContent = parts.filter(Boolean).join("  ");
-    el.status.className = "vxr-status " + (running ? "vxr-on" : S.note ? "vxr-warn" : "");
+    el.status.className = "vxr-status " + (running ? "vxr-on" : warn ? "vxr-warn" : "");
     el.toggle.textContent = running ? "Disable replacement" : "Enable replacement";
     el.toggle.classList.toggle("vxr-active", running);
     el.fileName.textContent = S.fileName ? S.fileName + (S.trackDuration ? " · " + fmt(S.trackDuration) : "") : "no file selected";

@@ -90,6 +90,10 @@ total duration` after ~10 s. The file is generated in the tab and streamed throu
   locate the Share button by the share icon (`button svg path[d^="M13 6v10h-2V6"]`), with the
   English aria-label and a localized label list as fallbacks. Never rely on English text alone —
   that removed the launcher on the Russian UI once.
+- **A reloaded extension leaves stale content scripts in open tabs**: every `chrome.*` call from
+  them throws `Extension context invalidated`. Route storage and messaging through
+  `extensionAlive()` / `markContextLost()`; never leave a storage promise rejecting unhandled.
+  The panel then tells the user to refresh the page.
 - **The panel starts hidden** (`vxr-hidden` set in `buildUI`); only the Unmute VOD pill opens it.
   In tests, wait for `#vxr-panel` with `state: "attached"` and click `.vxr-unmute` before using
   panel buttons.

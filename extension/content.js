@@ -106,6 +106,27 @@
     if (el.status) render(true);
   }
 
+  function isContextError(text) {
+    return /extension context invalidated|message port closed|receiving end does not exist/i.test(String(text || ""));
+  }
+
+  function watchContextErrors() {
+    var swallow = function (e) {
+      var reason = e && (e.reason || e.error);
+      var text = (reason && (reason.message || reason)) || (e && e.message) || "";
+      if (!isContextError(text)) return;
+      if (e.preventDefault) e.preventDefault();
+      markContextLost();
+    };
+    window.addEventListener("unhandledrejection", swallow);
+    window.addEventListener("error", swallow);
+  }
+
+  function catchContext(promise) {
+    if (promise && typeof promise.catch === "function") promise.catch(markContextLost);
+    return promise;
+  }
+
   function loadPrefs() {
     return new Promise(function (resolve) {
       var done = false;
@@ -117,20 +138,20 @@
       var guard = setTimeout(function () {
         finish({});
       }, 1500);
-      if (!extensionAlive()) {
-        clearTimeout(guard);
-        markContextLost();
-        return finish({});
-      }
-      try {
-        chrome.storage.local.get("vxr", function (data) {
-          clearTimeout(guard);
-          finish((data && data.vxr) || {});
-        });
-      } catch (e) {
+      var fail = function () {
         clearTimeout(guard);
         markContextLost();
         finish({});
+      };
+      if (!extensionAlive()) return fail();
+      try {
+        var got = chrome.storage.local.get("vxr", function (data) {
+          clearTimeout(guard);
+          finish((data && data.vxr) || {});
+        });
+        if (got && typeof got.catch === "function") got.catch(fail);
+      } catch (e) {
+        fail();
       }
     });
   }
@@ -138,16 +159,22 @@
   function savePrefs() {
     if (S.contextLost || !extensionAlive()) return;
     try {
-      chrome.storage.local.get("vxr", function (data) {
+      var got = chrome.storage.local.get("vxr", function (data) {
         try {
           var prev = (data && data.vxr) || {};
           var offsets = prev.offsets || {};
           if (S.vodId) offsets[S.vodId] = S.offset;
-          chrome.storage.local.set({ vxr: { offsets: offsets, fileName: S.fileName, mode: S.mode } });
+          var wrote = chrome.storage.local.set({ vxr: { offsets: offsets, fileName: S.fileName, mode: S.mode } }, function () {
+            try {
+              void chrome.runtime.lastError;
+            } catch (err) {}
+          });
+          catchContext(wrote);
         } catch (e) {
           markContextLost();
         }
       });
+      catchContext(got);
     } catch (e) {
       markContextLost();
     }
@@ -594,7 +621,7 @@
         return finish({ ok: false, error: "extension context lost — refresh the page" });
       }
       try {
-        chrome.storage.local.set({ vxrRules: value }, function () {
+        var wrote = chrome.storage.local.set({ vxrRules: value }, function () {
           clearTimeout(guard);
           var err = "";
           try {
@@ -602,12 +629,20 @@
           } catch (e) {}
           finish({ ok: !err, error: err });
         });
+        if (wrote && typeof wrote.catch === "function") {
+          wrote.catch(function () {
+            clearTimeout(guard);
+            markContextLost();
+            finish({ ok: false, error: "extension context lost — refresh the page" });
+          });
+        }
         try {
-          chrome.runtime.sendMessage({ op: "cdnSync" }, function () {
+          var sent = chrome.runtime.sendMessage({ op: "cdnSync" }, function () {
             try {
               void chrome.runtime.lastError;
             } catch (err) {}
           });
+          catchContext(sent);
         } catch (e) {}
       } catch (e) {
         clearTimeout(guard);
@@ -619,11 +654,12 @@
 
   function cdnInstall(rules) {
     try {
-      chrome.runtime.sendMessage({ op: "cdnInstall", rules: rules }, function () {
+      var sent = chrome.runtime.sendMessage({ op: "cdnInstall", rules: rules }, function () {
         try {
           void chrome.runtime.lastError;
         } catch (err) {}
       });
+      catchContext(sent);
     } catch (e) {}
     return storageSet(rules);
   }
@@ -1148,6 +1184,7 @@
   }
 
   function poll() {
+    if (!extensionAlive()) markContextLost();
     bindPlayer();
     var id = currentVodId();
     if (id !== S.vodId) {
@@ -1170,6 +1207,7 @@
     ensureVolumeHook();
   }
 
+  watchContextErrors();
   loadPrefs().then(function (prefs) {
     if (prefs.fileName) S.fileName = prefs.fileName;
     S.mode = prefs.mode === "full" ? "full" : "muted";

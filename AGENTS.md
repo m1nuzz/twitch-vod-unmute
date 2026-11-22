@@ -20,7 +20,7 @@ npx playwright install chromium # one-time browser download for e2e
 npm run lint                    # ESLint flat config
 npm run format:check            # Prettier
 npm run test:unit               # 12 sync-engine checks, fake clocks
-npm run test:e2e                # 29 Playwright checks against a fake Twitch
+npm run test:e2e                # 30 Playwright checks against a fake Twitch
 npm test                        # unit + e2e (what CI runs)
 npm run package                 # validates the manifest and builds dist/*.zip
 ```
@@ -93,7 +93,8 @@ total duration` after ~10 s. The file is generated in the tab and streamed throu
 - **A reloaded extension leaves stale content scripts in open tabs**: every `chrome.*` call from
   them throws `Extension context invalidated`. Route storage and messaging through
   `extensionAlive()` / `markContextLost()`; never leave a storage promise rejecting unhandled.
-  The panel then tells the user to refresh the page.
+  The script also swallows matching `unhandledrejection`/`error` events and checks the context on
+  the 1 s poll; the panel then tells the user to refresh the page instead of failing silently.
 - **The panel starts hidden** (`vxr-hidden` set in `buildUI`); only the Unmute VOD pill opens it.
   In tests, wait for `#vxr-panel` with `state: "attached"` and click `.vxr-unmute` before using
   panel buttons.

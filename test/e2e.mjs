@@ -252,6 +252,14 @@ try {
     args: ["--autoplay-policy=no-user-gesture-required", `--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`]
   });
   page = browser.pages()[0] || (await browser.newPage());
+  const ctxErrors = [];
+  const noteCtx = (text) => {
+    if (/extension context invalidated|message port closed/i.test(String(text))) ctxErrors.push(String(text));
+  };
+  page.on("pageerror", noteCtx);
+  page.on("console", (m) => {
+    if (m.type() === "error") noteCtx(m.text());
+  });
 
   await page.addInitScript(() => {
     let n = 0;
@@ -586,6 +594,42 @@ try {
     "redirect rule rewrites segments",
     sawPlain && !sawMuted && redirected.body === "ORIGINAL",
     `server saw=${JSON.stringify(requests)} fetch -> ${redirected.url} ${redirected.status} "${redirected.body}"`
+  );
+
+  /* a reloaded extension leaves this tab with a stale content script */
+  const sw = browser.serviceWorkers().find((w) => w.url().startsWith("chrome-extension://"));
+  const extId = sw ? new URL(sw.url()).host : "";
+  let reloaded = "no worker";
+  if (extId) {
+    const extPage = await browser.newPage();
+    await extPage.goto("chrome://extensions");
+    await extPage.waitForTimeout(500);
+    reloaded = await extPage.evaluate(
+      (id) =>
+        new Promise((resolve) => {
+          try {
+            chrome.developerPrivate.reload(id, { failQuietly: false }, () => {
+              void chrome.runtime.lastError;
+              resolve("ok");
+            });
+          } catch (e) {
+            resolve("error: " + e.message);
+          }
+        }),
+      extId
+    );
+    await extPage.close();
+  }
+  await page.click("#vxr-panel .vxr-mode-full");
+  const refreshHint = await page
+    .waitForFunction(() => /refresh the page/.test(document.querySelector("#vxr-panel .vxr-status").textContent), null, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  await page.waitForTimeout(500);
+  check(
+    "extension reload is caught in the panel",
+    reloaded === "ok" && refreshHint && ctxErrors.length === 0,
+    `reload=${reloaded} hint=${refreshHint} errors=${JSON.stringify(ctxErrors.slice(0, 2))}`
   );
 
   await browser.close();

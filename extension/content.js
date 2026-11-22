@@ -18,6 +18,7 @@
   var pageMuted = false;
   var dlBusy = false;
   var dlNote = "";
+  var dlPercent = 0;
   var running = false;
   var rafId = 0;
   var lastRender = 0;
@@ -240,6 +241,19 @@
     return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + " MB";
   }
 
+  function fmtSpeed(bytesPerSec) {
+    var bps = Number(bytesPerSec) || 0;
+    if (bps >= 1048576) return (bps / 1048576).toFixed(1) + " MB/s";
+    return Math.max(1, Math.round(bps / 1024)) + " KB/s";
+  }
+
+  function fmtEta(sec) {
+    var s = Math.max(0, Math.round(sec));
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
   document.addEventListener("VXR_DL", function (e) {
     var st;
     try {
@@ -250,19 +264,31 @@
     if (!st) return;
     if (st.phase === "done") {
       dlBusy = false;
+      dlPercent = 0;
       dlNote = "audio saved: " + fmtMB(st.bytes) + (st.note ? " · " + st.note : "");
     } else if (st.phase === "error") {
       dlBusy = false;
+      dlPercent = 0;
       dlNote = "error: " + (st.note || "unknown");
     } else if (st.phase === "cancel") {
       dlBusy = false;
+      dlPercent = 0;
       dlNote = "download cancelled";
     } else if (st.phase === "prepare") {
       dlBusy = true;
+      dlPercent = 0;
       dlNote = st.note || "preparing…";
     } else if (st.phase === "run") {
       dlBusy = true;
-      dlNote = "downloading: " + (st.done || 0) + "/" + (st.total || "?") + " · " + fmtMB(st.bytes) + (st.note ? " · " + st.note : "");
+      var totalSegs = Number(st.total) || 0;
+      var doneSegs = Number(st.done) || 0;
+      dlPercent = totalSegs ? Math.min(100, Math.round((doneSegs / totalSegs) * 100)) : 0;
+      var line = "downloading: " + doneSegs + "/" + (totalSegs || "?") + " · " + fmtMB(st.bytes);
+      if (st.totalBytes) line += " / ~" + fmtMB(st.totalBytes) + " · " + dlPercent + "%";
+      if (st.speed) line += " · " + fmtSpeed(st.speed);
+      if (st.eta) line += " · ~" + fmtEta(st.eta) + " left";
+      if (st.note && st.note !== "downloading") line += " · " + st.note;
+      dlNote = line;
     }
     render(true);
   });
@@ -787,6 +813,7 @@
         return;
       }
       dlBusy = true;
+      dlPercent = 0;
       dlNote = "preparing…";
       render(true);
       rpc("audioDownloadStart", { vodId: S.vodId }, 15000).then(
@@ -805,8 +832,12 @@
       );
     });
     el.dlNote = h("span", "vxr-file-name vxr-dl-note", "");
+    el.dlBar = h("i", "vxr-dl-bar");
+    el.dlBarFill = h("b", "", "");
+    el.dlBar.appendChild(el.dlBarFill);
     el.rowDl.appendChild(el.dlBtn);
     el.rowDl.appendChild(el.dlNote);
+    el.rowDl.appendChild(el.dlBar);
     el.panel.appendChild(el.rowDl);
 
     el.rowMain = h("div", "vxr-row");
@@ -991,9 +1022,11 @@
       el.modeMuted.classList.toggle("vxr-active", S.mode === "muted");
       el.modeFull.classList.toggle("vxr-active", S.mode === "full");
     }
-    el.dlBtn.textContent = dlBusy ? "Cancel download" : "Download audio";
+    el.dlBtn.textContent = dlBusy ? (dlPercent ? "Cancel download · " + dlPercent + "%" : "Cancel download") : "Download audio";
     el.dlBtn.classList.toggle("vxr-active", dlBusy);
     el.dlNote.textContent = dlNote;
+    el.dlBar.style.display = dlBusy && dlPercent ? "" : "none";
+    el.dlBarFill.style.width = dlPercent + "%";
     el.levelMeter.setAttribute("data-gain", S.gain.toFixed(2));
     el.levelMeter.setAttribute("data-muted", pageMuted ? "1" : "0");
     el.levelMeter.setAttribute("data-ctx", ctx ? ctx.state : "none");

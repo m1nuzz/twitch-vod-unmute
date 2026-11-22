@@ -271,16 +271,29 @@
           .then(function (master) {
             var lines = master.split(/\r?\n/);
             var audio = "";
+            var bandwidth = 0;
+            var pending = 0;
             for (var i = 0; i < lines.length; i++) {
               var s = lines[i].replace(/^\s+|\s+$/g, "");
-              if (!s || s.charAt(0) === "#") continue;
+              if (!s) continue;
+              if (s.indexOf("#EXT-X-STREAM-INF:") === 0) {
+                var bw = /(?:^|[,:])BANDWIDTH=(\d+)/.exec(s);
+                pending = bw ? Number(bw[1]) : 0;
+                continue;
+              }
+              if (s.charAt(0) === "#") continue;
               if (/audio_only\//.test(s)) {
                 audio = s;
+                bandwidth = pending;
                 break;
               }
+              pending = 0;
             }
             if (!audio) throw new Error("the VOD has no audio_only track");
-            return mediaPlaylist(new URL(audio, usherAbs).href);
+            return mediaPlaylist(new URL(audio, usherAbs).href).then(function (plan) {
+              plan.bitrate = bandwidth;
+              return plan;
+            });
           });
       });
   }
@@ -293,10 +306,17 @@
         parser.push(text);
         parser.end();
         var manifest = parser.manifest || {};
+        var segs = manifest.segments || [];
+        var durSum = 0;
+        for (var d = 0; d < segs.length; d++) durSum += Number(segs[d].duration) || 0;
         return {
-          segments: (manifest.segments || []).map(function (s) {
+          segments: segs.map(function (s) {
             return new URL(s.uri, base).href;
           }),
+          durations: segs.map(function (s) {
+            return Number(s.duration) || 0;
+          }),
+          duration: durSum,
           target: Number(manifest.targetDuration) || 6,
           end: !!manifest.endList
         };
@@ -304,6 +324,9 @@
     }
     var lines = text.split(/\r?\n/);
     var segments = [];
+    var durations = [];
+    var duration = 0;
+    var segDur = 0;
     var target = 6;
     var end = false;
     for (var i = 0; i < lines.length; i++) {
@@ -312,6 +335,10 @@
       var m;
       if ((m = /^#EXT-X-TARGETDURATION:\s*([\d.]+)/.exec(s))) {
         target = parseFloat(m[1]) || target;
+        continue;
+      }
+      if ((m = /^#EXTINF:\s*([\d.]+)/.exec(s))) {
+        segDur = parseFloat(m[1]) || 0;
         continue;
       }
       if (s === "#EXT-X-ENDLIST") {
@@ -326,8 +353,11 @@
         continue;
       }
       segments.push(abs);
+      durations.push(segDur);
+      duration += segDur;
+      segDur = 0;
     }
-    return { segments: segments, target: target, end: end };
+    return { segments: segments, durations: durations, duration: duration, target: target, end: end };
   }
 
   function mediaPlaylist(url) {
@@ -393,15 +423,28 @@
     });
   }
 
+  function dlRate(st) {
+    var elapsed = Math.max(0.5, (Date.now() - st.startedAt) / 1000);
+    var speed = Math.round(st.bytes / elapsed);
+    var total = st.totalBytes;
+    if (st.etaOn && st.mediaDuration > 0 && st.durationDone >= 10) total = Math.round((st.bytes / st.durationDone) * st.mediaDuration);
+    var eta = st.etaOn && speed > 0 && total > st.bytes ? Math.round((total - st.bytes) / speed) : 0;
+    return { totalBytes: total, speed: speed, eta: eta };
+  }
+
   function dlProgress(st, plan) {
     var now = Date.now();
     if (st.pos !== plan.segments.length && now - st.lastSend < 800) return;
     st.lastSend = now;
+    var rate = dlRate(st);
     dlSend({
       phase: "run",
       done: st.pos,
       total: Math.max(plan.segments.length, st.total),
       bytes: st.bytes,
+      totalBytes: rate.totalBytes,
+      speed: rate.speed,
+      eta: rate.eta,
       note: plan.end ? "downloading" : "downloading (recording is still live)"
     });
   }
@@ -430,6 +473,7 @@
   function runAudioDownload(st) {
     var lib = window.muxjs;
     if (!lib || !lib.mp4 || !lib.mp4.Transmuxer) return Promise.reject(new Error("mux.js failed to load"));
+    st.startedAt = Date.now();
     var tr = new lib.mp4.Transmuxer();
     var initWritten = false;
     tr.on("data", function (seg) {
@@ -441,18 +485,23 @@
     });
 
     var plan = null;
+    function planInfo(p) {
+      plan = p;
+      st.total = Math.max(st.total, p.segments.length);
+      st.etaOn = !!p.end;
+      st.mediaDuration = p.duration || 0;
+      st.totalBytes = p.end && p.bitrate && p.duration ? Math.round((p.bitrate / 8) * p.duration) : 0;
+      return p;
+    }
     function refill() {
-      return audioPlaylist(st.vodId).then(function (p) {
-        plan = p;
-        st.total = Math.max(st.total, p.segments.length);
-        return p;
-      });
+      return audioPlaylist(st.vodId).then(planInfo);
     }
     function step() {
       if (st.cancelled) return Promise.reject(dlAbortError());
       if (st.pos < plan.segments.length) {
         var url = plan.segments[st.pos];
         return dlFetchSeg(st, url).then(function (buf) {
+          if (plan.durations) st.durationDone += plan.durations[st.pos] || 0;
           st.pos++;
           tr.push(new Uint8Array(buf));
           tr.flush();
@@ -461,14 +510,23 @@
         });
       }
       if (plan.end) return Promise.resolve();
-      dlSend({ phase: "run", done: st.pos, total: st.total, bytes: st.bytes, note: "waiting for new segments" });
+      var rate = dlRate(st);
+      dlSend({
+        phase: "run",
+        done: st.pos,
+        total: st.total,
+        bytes: st.bytes,
+        totalBytes: rate.totalBytes,
+        speed: rate.speed,
+        eta: rate.eta,
+        note: "waiting for new segments"
+      });
       return dlSleep(st, Math.max(3, plan.target))
         .then(function () {
           return mediaPlaylist(plan.mediaUrl);
         })
         .then(function (p) {
-          plan = p;
-          st.total = Math.max(st.total, p.segments.length);
+          planInfo(p);
           return step();
         });
     }
@@ -476,7 +534,16 @@
     return refill()
       .then(function (p) {
         st.total = p.segments.length;
-        dlSend({ phase: "run", done: 0, total: st.total, bytes: 0, note: p.end ? "downloading" : "downloading (recording is still live)" });
+        dlSend({
+          phase: "run",
+          done: 0,
+          total: st.total,
+          bytes: 0,
+          totalBytes: st.totalBytes,
+          speed: 0,
+          eta: 0,
+          note: p.end ? "downloading" : "downloading (recording is still live)"
+        });
         return step();
       })
       .then(function () {
@@ -515,6 +582,11 @@
       bytes: 0,
       pos: 0,
       total: 0,
+      totalBytes: 0,
+      etaOn: false,
+      mediaDuration: 0,
+      durationDone: 0,
+      startedAt: Date.now(),
       lastSend: 0,
       chain: Promise.resolve(),
       sink: null,

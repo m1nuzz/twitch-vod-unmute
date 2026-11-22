@@ -141,6 +141,29 @@
   max-width: 190px;
 }
 
+.vxr-dl-note {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.vxr-dl-bar {
+  display: none;
+  flex: 0 0 100%;
+  height: 4px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.vxr-dl-bar > b {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: #9147ff;
+  transition: width 0.3s linear;
+}
+
 .vxr-offset-out {
   margin-left: auto;
   color: #d9c6ff;

@@ -50,10 +50,11 @@ The extension only runs on `https://www.twitch.tv/videos/<id>` pages.
 4. If the file does not start at the beginning of the recording, click **Sync now** at a moment
    when the file sound matches the picture. The offset is stored per VOD. Fine tuning:
    −1 s / −100 ms / −10 ms / +10 ms / +100 ms / +1 s.
-5. **Download audio** saves the unmuted `audio_only` track as M4A. During the download the button
-   becomes **Cancel download**; a cancelled download is discarded. For a still-recording VOD the
-   extension keeps polling the playlist for new segments and finishes the file when the recording
-   ends.
+5. **Download audio** saves the unmuted `audio_only` track as M4A. While it runs, the button shows
+   the percentage and the panel shows downloaded/total size, speed and the estimated time left;
+   the same row has a progress bar. The button becomes **Cancel download · N%**; a cancelled
+   download is discarded. For a still-recording VOD the extension keeps polling the playlist for
+   new segments and finishes the file when the recording ends.
 6. **Disable replacement** returns Twitch's own audio.
 
 The “drift N ms” indicator is the current audio-to-picture offset. Up to ~40 ms is inaudible
@@ -102,6 +103,12 @@ mux.js (the same library hls.js uses) and written as a stream into the file chos
 File System Access API. Playlists are parsed with videojs `m3u8-parser` (fallback: built-in regex
 parser). A VOD that is still `RECORDING` has no `#EXT-X-ENDLIST`: the playlist is re-read every
 `max(3, targetDuration)` seconds and new segments are appended until the recording ends.
+
+The M4A is generated inside the tab, so it cannot be handed to Chrome's own download manager:
+`chrome.downloads` needs a ready URL, and buffering a whole multi-hour VOD in memory is not an
+option. The file is streamed straight to the location chosen in the native Save dialog instead,
+and the panel reports percentage, size, speed and ETA. The total size starts from the `audio_only`
+`BANDWIDTH` and is re-calibrated from the bytes actually produced per downloaded media second.
 
 ## Permissions
 

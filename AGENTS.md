@@ -74,6 +74,11 @@ isolated-world boundaries reliably.
   set `keepOriginalTimestamps` or per-push `setBaseMediaDecodeTime` — the former keeps the original
   PTS, the latter collapses duration when segment PTS repeat. Poll the media playlist until
   `#EXT-X-ENDLIST` for recordings that are still live.
+- **Download progress**: percent comes from segment counts (playlist total). Total bytes start at
+  `audio_only` `BANDWIDTH × duration` and are re-calibrated as `bytes / downloaded media seconds ×
+total duration` after ~10 s. The file is generated in the tab and streamed through the File
+  System Access API, so Chrome's download manager cannot own it (`chrome.downloads` needs a ready
+  URL; buffering a multi-hour VOD in memory is not acceptable). Progress lives in the panel.
 - **UI language is English.** Twitch localizes both the visible Share label and its aria-label, so
   locate the Share button by the share icon (`button svg path[d^="M13 6v10h-2V6"]`), with the
   English aria-label and a localized label list as fallbacks. Never rely on English text alone —

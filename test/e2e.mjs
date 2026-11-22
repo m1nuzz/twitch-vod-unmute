@@ -392,6 +392,11 @@ try {
 
   /* audio download: picker streams transmuxed chunks to the test server */
   fs.rmSync(path.join(BUILD, "dl-1.m4a"), { force: true });
+  await page.evaluate(() => {
+    window.__dlNotes = [];
+    const note = document.querySelector("#vxr-panel .vxr-dl-note");
+    new MutationObserver(() => window.__dlNotes.push(note.textContent)).observe(note, { childList: true, characterData: true, subtree: true });
+  });
   const dlBefore = audioPolls;
   await page.click("#vxr-panel .vxr-dl");
   await page.waitForFunction(() => /audio saved/.test(document.querySelector("#vxr-panel .vxr-dl-note").textContent), null, { timeout: 45000 }).catch(() => {});
@@ -418,6 +423,10 @@ try {
       audioPolls - dlBefore >= 2,
     `note="${dlNote.trim()}" size=${dlSize} duration=${dlDuration} polls=${audioPolls - dlBefore}`
   );
+  const dlNotes = await page.evaluate(() => window.__dlNotes || []);
+  const progressNote = dlNotes.find((n) => /downloading: \d+\/3 · .*\/ ~.* · \d+% · [\d.]+ (KB|MB)\/s/.test(n)) || "";
+  const barBuilt = await page.evaluate(() => !!document.querySelector("#vxr-panel .vxr-dl-bar > b"));
+  check("download shows percent, speed and time left", !!progressNote && barBuilt, `note="${progressNote}" bar=${barBuilt}`);
 
   /* real signal through the Web Audio graph (beeps every 2 s) */
   const ctxState = await page.evaluate(async () => {

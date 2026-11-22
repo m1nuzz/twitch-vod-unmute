@@ -28,7 +28,7 @@ jobs:
         run: command -v ffprobe || (sudo apt-get update && sudo apt-get install -y ffmpeg)
       - run: npm test
       - run: npm run package
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*.zip
           generate_release_notes: true

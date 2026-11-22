@@ -35,7 +35,7 @@ const target = `https://www.twitch.tv/videos/${VOD}${TS ? "?t=" + TS : ""}`;
 console.log("goto", target);
 await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60000 });
 const ok = await page
-  .waitForSelector("#vxr-panel", { timeout: 30000 })
+  .waitForSelector("#vxr-panel", { state: "attached", timeout: 30000 })
   .then(() => true)
   .catch(() => false);
 console.log("panel injected:", ok);
@@ -72,6 +72,8 @@ const ui = await page.evaluate(() => {
   };
 });
 console.log("ui               :", JSON.stringify(ui));
+await page.evaluate(() => document.querySelector(".vxr-unmute").click());
+console.log("panel opened     :", await page.evaluate(() => !!document.querySelector("#vxr-panel").getClientRects().length));
 await page.evaluate(() => document.querySelector(".vxr-unmute").click());
 const hidden = await page.evaluate(() => !document.querySelector("#vxr-panel").getClientRects().length);
 await page.evaluate(() => document.querySelector(".vxr-unmute").click());

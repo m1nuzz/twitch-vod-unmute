@@ -74,8 +74,13 @@ isolated-world boundaries reliably.
   set `keepOriginalTimestamps` or per-push `setBaseMediaDecodeTime` — the former keeps the original
   PTS, the latter collapses duration when segment PTS repeat. Poll the media playlist until
   `#EXT-X-ENDLIST` for recordings that are still live.
-- **UI language is English.** Twitch's own Share label is localized; find the button by
-  `aria-label="Share"` (it stays English on Russian UI), not by its visible text.
+- **UI language is English.** Twitch localizes both the visible Share label and its aria-label, so
+  locate the Share button by the share icon (`button svg path[d^="M13 6v10h-2V6"]`), with the
+  English aria-label and a localized label list as fallbacks. Never rely on English text alone —
+  that removed the launcher on the Russian UI once.
+- **The panel starts hidden** (`vxr-hidden` set in `buildUI`); only the Unmute VOD pill opens it.
+  In tests, wait for `#vxr-panel` with `state: "attached"` and click `.vxr-unmute` before using
+  panel buttons.
 
 ## Conventions
 

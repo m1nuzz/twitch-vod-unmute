@@ -896,6 +896,7 @@
     el.rowSeg.appendChild(next);
     el.panel.appendChild(el.rowSeg);
 
+    el.panel.classList.add("vxr-hidden");
     root.appendChild(el.panel);
 
     if (root.classList && !root.classList.contains("vxr-host")) root.classList.add("vxr-host");
@@ -905,22 +906,35 @@
     if (el.panel) el.panel.classList.toggle("vxr-hidden");
   }
 
+  /* Twitch localizes both the Share label and its aria-label, so the icon is the only
+     locale-independent anchor: the share glyph's first path is stable across locales. */
+  var SHARE_ICON = 'button svg path[d^="M13 6v10h-2V6"]';
+  var SHARE_WORDS =
+    "Share|Поделиться|Поділитися|Compartir|Partager|Teilen|Condividi|Compartilhar|Partilhar|Udostępnij|Paylaş|Delen|Dela|Del|Jaa|Sdílet|Megosztás|Distribuie|Zdieľať|Κοινοποίηση|共有|分享|共用|공유|مشاركة|साझा करें|แชร์|Chia sẻ|Bagikan|Kongsi";
+
+  function shareButton() {
+    var icons = document.querySelectorAll(SHARE_ICON);
+    for (var i = 0; i < icons.length; i++) {
+      var owner = icons[i].closest("button");
+      if (owner && !owner.classList.contains("vxr-unmute")) return owner;
+    }
+    var share = document.querySelector('button[aria-label="Share"]');
+    if (share && !share.classList.contains("vxr-unmute")) return share;
+    var buttons = document.querySelectorAll("button");
+    var words = new RegExp("^(" + SHARE_WORDS + ")$", "i");
+    for (i = 0; i < buttons.length; i++) {
+      var label = (buttons[i].getAttribute("aria-label") || "").replace(/\s*\(.*\)$/, "").trim();
+      var text = (buttons[i].textContent || "").replace(/^\s+|\s+$/g, "");
+      if (words.test(label) || words.test(text)) return buttons[i];
+    }
+    return null;
+  }
+
   /* Launcher clone of Twitch's own Share pill, inserted to its left. Twitch rebuilds the
      control bar on hover/fullscreen, so the poll re-adds it when it disappears. */
   function ensureUnmute() {
     if (document.querySelector(".vxr-unmute")) return;
-    var share = document.querySelector('button[aria-label="Share"]');
-    if (!share) {
-      var buttons = document.querySelectorAll("button");
-      for (var i = 0; i < buttons.length; i++) {
-        var label = buttons[i].getAttribute("aria-label") || "";
-        var text = (buttons[i].textContent || "").replace(/^\s+|\s+$/g, "");
-        if (/^Share$/i.test(label) || /^Share$/i.test(text)) {
-          share = buttons[i];
-          break;
-        }
-      }
-    }
+    var share = shareButton();
     if (!share || !share.parentElement || !share.parentElement.parentElement) return;
     var wrap = share.parentElement;
     var btn = share.cloneNode(true);

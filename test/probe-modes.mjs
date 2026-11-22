@@ -20,7 +20,9 @@ const browser = await chromium.launchPersistentContext(PROFILE, {
 });
 const page = browser.pages()[0] || (await browser.newPage());
 await page.goto(`https://www.twitch.tv/videos/${VOD}`, { waitUntil: "domcontentloaded", timeout: 60000 });
-await page.waitForSelector("#vxr-panel", { timeout: 30000 });
+await page.waitForSelector("#vxr-panel", { state: "attached", timeout: 30000 });
+await page.waitForSelector(".vxr-unmute", { timeout: 15000 });
+await page.click(".vxr-unmute");
 await page.waitForFunction(() => /\d+ ranges/.test(document.querySelector("#vxr-panel .vxr-seg-info").textContent), null, { timeout: 20000 }).catch(() => {});
 
 await page.waitForSelector(".vxr-unmute", { timeout: 15000 }).catch(() => {});

@@ -244,8 +244,8 @@ try {
   await page.goto(`${BASE}/videos/2926037201`, { waitUntil: "load" });
 
   /* panel + mute map */
-  await page.waitForSelector("#vxr-panel", { timeout: 8000 });
-  check("panel injected into player", await page.isVisible("#vxr-panel"));
+  await page.waitForSelector("#vxr-panel", { state: "attached", timeout: 8000 });
+  check("panel built closed", (await page.locator("#vxr-panel").count()) === 1 && !(await page.isVisible("#vxr-panel")));
   await page.waitForFunction(() => /3 ranges/.test(document.querySelector("#vxr-panel .vxr-seg-info").textContent), null, { timeout: 8000 }).catch(() => {});
   const segInfo = await page.textContent("#vxr-panel .vxr-seg-info");
   check("mute map parsed from page context", /3 ranges/.test(segInfo), `info="${segInfo}"`);
@@ -253,13 +253,19 @@ try {
   await page.waitForSelector(".vxr-unmute", { timeout: 5000 });
   const remute = await page.evaluate(() => {
     const b = document.querySelector(".vxr-unmute");
-    const s = document.querySelector('button[aria-label="Share"]');
+    const s = Array.from(document.querySelectorAll(".fake-share")).find((x) => !x.classList.contains("vxr-unmute"));
     if (!b || !s) return null;
     const rb = b.getBoundingClientRect();
     const rs = s.getBoundingClientRect();
     return { text: b.textContent.trim(), leftOfShare: rb.right <= rs.left + 1, gap: Math.round(rs.left - rb.right), visible: rb.width > 0 };
   });
-  check("Unmute VOD pill sits left of Share", remute && remute.text === "Unmute VOD" && remute.leftOfShare && remute.gap >= 4 && remute.visible, JSON.stringify(remute));
+  check(
+    "Unmute VOD pill sits left of a localized Share",
+    remute && remute.text === "Unmute VOD" && remute.leftOfShare && remute.gap >= 4 && remute.visible,
+    JSON.stringify(remute)
+  );
+  await page.click(".vxr-unmute");
+  check("Unmute VOD opens the panel", await page.isVisible("#vxr-panel"));
   await page.click(".vxr-unmute");
   check("Unmute VOD collapses the panel", !(await page.isVisible("#vxr-panel")));
   await page.click(".vxr-unmute");

@@ -19,7 +19,8 @@ download the unmuted audio track as M4A — even while the VOD is still recordin
 - **Mute map** — exact muted ranges from Twitch GQL (`muteInfo`), total time, range count and
   prev/next jumps. Twitch already draws its own marks on the seek bar; the extension adds none.
 - **Launcher pill** — an **Unmute VOD** button cloned from Twitch's Share pill sits next to it and
-  hides/reopens the panel.
+  opens/closes the panel (the panel starts closed). It is found by the share icon, so it also works
+  when Twitch localizes the Share label.
 - **CDN recovery** — for some muted segments Twitch still has the unmuted twin (`N.ts`) on the
   `chunked` (Source/1080p60) rendition. The extension checks the signed playlists and installs
   exact per-segment DNR redirects, so the player itself fetches the audible original.
@@ -36,8 +37,10 @@ The extension only runs on `https://www.twitch.tv/videos/<id>` pages.
 
 ## Usage
 
-1. Open a VOD. The **VOD audio replacement** panel appears in the top-right corner of the player.
-   The **Unmute VOD** pill next to **Share** shows/hides it (the panel's “—” button hides it too).
+1. Open a VOD. The **VOD audio replacement** panel starts closed in the top-right corner of the
+   player. Click the **Unmute VOD** pill next to **Share** to open it; the pill toggles it and the
+   panel's “—” button hides it. The pill is located by the Share icon, so a localized Twitch UI
+   (for example «Поделиться») works the same way.
 2. Click **Choose audio file** and pick your audio file (mp3, m4a, aac, ogg/opus, wav, flac).
    The file starts playing; the original is muted without changing the player's volume or mute UI.
    Volume follows the Twitch player slider (including the mute button) and the level meter in the

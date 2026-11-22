@@ -1,0 +1,9 @@
+name: CodeQL config
+
+queries:
+  - uses: security-and-quality
+
+paths-ignore:
+  # Live research probes intentionally download Twitch segments and write them to disk
+  # for ffmpeg comparison. They are test-only and never shipped in the extension.
+  - test/probe-*.mjs

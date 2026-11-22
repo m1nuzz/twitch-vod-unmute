@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - name: Ensure ffprobe
+        run: command -v ffprobe || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+      - run: npm test
+      - name: Package extension
+        if: success()
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: twitch-vod-unmute-extension
+          path: dist/*.zip
+          retention-days: 14
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: test/.build/*.png
+          if-no-files-found: ignore
+          retention-days: 7

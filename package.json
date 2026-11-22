@@ -1,0 +1,24 @@
+{
+  "name": "twitch-vod-unmute",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Chrome MV3 extension that replaces muted Twitch VOD audio with a local file or CDN originals.",
+  "scripts": {
+    "test": "node test/sync-engine.test.mjs && node test/e2e.mjs",
+    "test:unit": "node test/sync-engine.test.mjs",
+    "test:e2e": "node test/e2e.mjs",
+    "package": "node scripts/package.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "archiver": "^8.0.0",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "m3u8-parser": "^7.2.1",
+    "playwright": "1.63.0",
+    "prettier": "^3.10.1"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Twitch VOD Unmute",
+  "version": "0.3.0",
+  "description": "Replaces Twitch VOD audio with a local file (whole track or only muted ranges), previews the mute map, recovers originals from the CDN and downloads the unmuted track.",
+  "permissions": ["storage", "declarativeNetRequest"],
+  "host_permissions": [
+    "https://www.twitch.tv/*",
+    "https://gql.twitch.tv/*",
+    "https://*.ttvnw.net/*",
+    "https://*.cloudfront.net/*",
+    "https://*.fastly.net/*",
+    "https://*.llnwd.net/*",
+    "https://*.akamaized.net/*"
+  ],
+  "optional_host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.twitch.tv/videos/*"],
+      "js": ["vendor/m3u8-parser.min.js", "vendor/mux.min.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.twitch.tv/videos/*"],
+      "js": ["gql-bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.twitch.tv/videos/*"],
+      "js": ["sync-engine.js", "content.js"],
+      "css": ["panel.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

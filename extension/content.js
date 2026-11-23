@@ -1121,14 +1121,41 @@
       if (cs.display === "flex" && cs.flexDirection === "row") break;
       parent = parent.parentElement;
     }
-    if (!parent || parent === document.body) return;
-    var child = share;
-    while (child.parentElement && child.parentElement !== parent) child = child.parentElement;
-    if (child.parentElement !== parent) return;
+    var child;
+    if (!parent || parent === document.body) {
+      /* no flex row in this layout: sit in the Share wrapper's own parent */
+      parent = wrap.parentElement;
+      child = wrap;
+    } else {
+      child = share;
+      while (child.parentElement && child.parentElement !== parent) child = child.parentElement;
+      if (child.parentElement !== parent) {
+        parent = wrap.parentElement;
+        child = wrap;
+      }
+    }
+    if (!parent || !child) return;
     var wrapClone = wrap.cloneNode(false);
     wrapClone.classList.add("vxr-unmute-wrap");
     wrapClone.appendChild(btn);
     parent.insertBefore(wrapClone, child);
+  }
+
+  /* Twitch rebuilds the control bar on hover, fullscreen and SPA navigation; waiting for
+     the 1 s poll leaves the pill missing for up to a second, so re-add it on DOM changes. */
+  var launcherWatch = null;
+  function watchLauncher() {
+    if (launcherWatch || typeof MutationObserver !== "function" || !document.body) return;
+    var queued = false;
+    launcherWatch = new MutationObserver(function () {
+      if (queued || document.querySelector(".vxr-unmute")) return;
+      queued = true;
+      setTimeout(function () {
+        queued = false;
+        ensureUnmute();
+      }, 80);
+    });
+    launcherWatch.observe(document.body, { childList: true, subtree: true });
   }
 
   function render(force) {
@@ -1237,6 +1264,7 @@
     buildUI();
     bindPlayer();
     ensureUnmute();
+    watchLauncher();
     render(true);
     refreshMuteMap();
     setInterval(poll, POLL_MS);

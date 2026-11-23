@@ -333,6 +333,57 @@ try {
     document.querySelector("video").currentTime = 2;
   });
 
+  /* Twitch re-renders the control bar on hover/fullscreen; the launcher must come back */
+  await page.evaluate(() => {
+    const w = document.querySelector(".vxr-unmute-wrap");
+    if (w) w.remove();
+  });
+  await page.waitForFunction(() => !!document.querySelector(".vxr-unmute"), null, { timeout: 1500 }).catch(() => {});
+  check(
+    "launcher returns after the controls re-render",
+    await page.evaluate(() => {
+      const b = document.querySelector(".vxr-unmute");
+      const s = Array.from(document.querySelectorAll(".fake-share")).find((x) => !x.classList.contains("vxr-unmute"));
+      return !!(b && s && b.getBoundingClientRect().right <= s.getBoundingClientRect().left + 1);
+    }),
+    "removed the launcher wrapper and waited 1.5 s"
+  );
+
+  /* the Share control can mount after the first poll (controls hidden at load) */
+  await page.evaluate(() => {
+    const w = document.querySelector(".vxr-unmute-wrap");
+    if (w) w.remove();
+    const sw = document.querySelector(".share-wrap");
+    if (sw) sw.remove();
+  });
+  await wait(300);
+  check("no launcher while the Share control is absent", !(await page.evaluate(() => !!document.querySelector(".vxr-unmute"))));
+  await page.evaluate(() => {
+    const c = document.querySelector(".controls--div");
+    const d = document.createElement("div");
+    d.className = "share-wrap";
+    d.innerHTML = '<button aria-label="Share" class="fake-share"><span data-a-target="tw-core-button-label-text">Share</span></button>';
+    c.appendChild(d);
+  });
+  await page.waitForFunction(() => !!document.querySelector(".vxr-unmute"), null, { timeout: 2500 }).catch(() => {});
+  check("launcher appears when Share mounts later", await page.evaluate(() => !!document.querySelector(".vxr-unmute")), "Share re-added after removal");
+
+  /* layout without a flex-row ancestor must still get the pill */
+  await page.evaluate(() => {
+    const w = document.querySelector(".vxr-unmute-wrap");
+    if (w) w.remove();
+    document.querySelector(".controls--div").style.display = "block";
+  });
+  await page.waitForFunction(() => !!document.querySelector(".vxr-unmute"), null, { timeout: 1500 }).catch(() => {});
+  check(
+    "launcher survives a non-flex control layout",
+    await page.evaluate(() => {
+      const b = document.querySelector(".vxr-unmute");
+      return !!(b && b.parentElement && b.parentElement.closest(".controls--div"));
+    }),
+    "controls switched to display:block"
+  );
+
   check(
     "cdn base discovered from page timeline",
     requests.some((r) => r.includes("storyboards")),
@@ -636,41 +687,43 @@ try {
     `server saw=${JSON.stringify(requests)} fetch -> ${redirected.url} ${redirected.status} "${redirected.body}"`
   );
 
-  /* a reloaded extension leaves this tab with a stale content script */
+  /* a reloaded extension leaves this tab with a stale, silently dead script */
+  await page.evaluate(() => {
+    const v = document.querySelector("video");
+    v.currentTime = 20;
+    v.play().catch(() => {});
+  });
+  await page.click("#vxr-panel .vxr-toggle");
+  await page.waitForFunction(() => /replacement on/.test(document.querySelector("#vxr-panel .vxr-status").textContent), null, { timeout: 5000 }).catch(() => {});
   const sw = browser.serviceWorkers().find((w) => w.url().startsWith("chrome-extension://"));
-  const extId = sw ? new URL(sw.url()).host : "";
   let reloaded = "no worker";
-  if (extId) {
-    const extPage = await browser.newPage();
-    await extPage.goto("chrome://extensions");
-    await extPage.waitForTimeout(500);
-    reloaded = await extPage.evaluate(
-      (id) =>
-        new Promise((resolve) => {
-          try {
-            chrome.developerPrivate.reload(id, { failQuietly: false }, () => {
-              void chrome.runtime.lastError;
-              resolve("ok");
-            });
-          } catch (e) {
-            resolve("error: " + e.message);
-          }
-        }),
-      extId
-    );
-    await extPage.close();
+  if (sw) {
+    reloaded = await sw
+      .evaluate(() => {
+        try {
+          chrome.runtime.reload();
+          return "ok";
+        } catch (e) {
+          return "error: " + e.message;
+        }
+      })
+      .catch(() => "reloaded");
   }
-  await page.click("#vxr-panel .vxr-mode-full");
+  /* no click after the reload: the 1 s poll itself must spot the dead context */
   const refreshHint = await page
-    .waitForFunction(() => /refresh the page/.test(document.querySelector("#vxr-panel .vxr-status").textContent), null, { timeout: 5000 })
+    .waitForFunction(() => /refresh the page/.test(document.querySelector("#vxr-panel .vxr-status").textContent), null, { timeout: 6000 })
     .then(() => true)
     .catch(() => false);
   await page.waitForTimeout(500);
   check(
-    "extension reload is caught in the panel",
-    reloaded === "ok" && refreshHint && ctxErrors.length === 0,
+    "a running replacement catches the extension reload by itself",
+    reloaded !== "no worker" && refreshHint && ctxErrors.length === 0,
     `reload=${reloaded} hint=${refreshHint} errors=${JSON.stringify(ctxErrors.slice(0, 2))}`
   );
+
+  /* A Playwright-launched developer extension is force-disabled after a reload
+     (unsupportedDeveloperExtension), so the refreshed page cannot be tested here;
+     fresh injection on ordinary page loads is covered by every other check. */
 
   await browser.close();
 } catch (e) {

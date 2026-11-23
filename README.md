@@ -157,7 +157,7 @@ No network request leaves the Twitch page origin for account data; GQL calls are
 npm install
 npm test                  # unit + browser e2e
 npm run test:unit         # 12 sync-engine checks with fake clocks
-npm run test:e2e          # 36 Playwright checks against a fake Twitch
+npm run test:e2e          # 40 Playwright checks against a fake Twitch
 npm run lint
 npm run format:check
 ```

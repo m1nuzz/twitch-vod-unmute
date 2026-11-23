@@ -20,7 +20,7 @@ npx playwright install chromium # one-time browser download for e2e
 npm run lint                    # ESLint flat config
 npm run format:check            # Prettier
 npm run test:unit               # 12 sync-engine checks, fake clocks
-npm run test:e2e                # 36 Playwright checks against a fake Twitch
+npm run test:e2e                # 40 Playwright checks against a fake Twitch
 npm test                        # unit + e2e (what CI runs)
 npm run package                 # validates the manifest and builds dist/*.zip
 ```
@@ -103,6 +103,9 @@ total duration` after ~10 s. The file is generated in the tab and streamed throu
 - **The panel starts hidden** (`vxr-hidden` set in `buildUI`); only the Unmute VOD pill opens it.
   In tests, wait for `#vxr-panel` with `state: "attached"` and click `.vxr-unmute` before using
   panel buttons.
+- **The launcher must survive Twitch re-rendering the control bar**: a `MutationObserver` re-adds
+  it within ~100 ms (the 1 s poll is only a fallback), and when no flex-row ancestor exists it
+  falls back to the Share wrapper's own parent. Share can also mount after load; keep retrying.
 
 ## Conventions
 
@@ -117,6 +120,9 @@ total duration` after ~10 s. The file is generated in the tab and streamed throu
   new network behavior.
 - Use fresh Playwright profiles under `test/.build/`; never launch, kill or attach to the user's
   own Chrome.
+- Playwright **force-disables a developer extension after `chrome.runtime.reload()`**
+  (`unsupportedDeveloperExtension`), so the reload test can only assert that a stale tab shows the
+  "refresh the page" hint; refreshed-page injection cannot be exercised in this harness.
 - Test artifacts stay in `.build/`, `test/.build/`, `dist/`, `node_modules/` (gitignored).
 
 ## Release process

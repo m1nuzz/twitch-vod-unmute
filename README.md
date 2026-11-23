@@ -28,8 +28,9 @@ download the unmuted audio track as M4A — even while the VOD is still recordin
 - **Audio download** — saves the stream's `audio_only` playlist as a single M4A (AAC) with
   timestamps starting at 0. Works for finished VODs and for recordings that are still live.
 - **Unmuted download** — for muted ranges whose 1080p60 originals still exist on the CDN, extracts
-  their audio and splices it into the M4A on the same timeline. The panel reports how many muted
-  segments were recovered; purged originals stay silent.
+  their audio and splices it into the M4A on the same timeline. The panel checks every muted
+  segment first and refuses to save anything when Twitch has already purged all originals, instead
+  of handing back a muted copy. Purged originals inside a partially recoverable VOD stay silent.
 
 ## Install
 
@@ -156,7 +157,7 @@ No network request leaves the Twitch page origin for account data; GQL calls are
 npm install
 npm test                  # unit + browser e2e
 npm run test:unit         # 12 sync-engine checks with fake clocks
-npm run test:e2e          # 35 Playwright checks against a fake Twitch
+npm run test:e2e          # 36 Playwright checks against a fake Twitch
 npm run lint
 npm run format:check
 ```

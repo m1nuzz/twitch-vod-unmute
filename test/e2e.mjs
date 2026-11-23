@@ -48,6 +48,7 @@ const MUTE_MAP = {
 
 let cdnAlive = false;
 let unmutedFixture = false;
+let plainGone = false;
 const requests = [];
 
 const AV_TS = path.join(BUILD, "av10.ts");
@@ -183,6 +184,10 @@ const server = http.createServer(async (req, res) => {
     return res.end(mediaPlaylist());
   }
   if (unmutedFixture && /^\/videos\/2926037201\/chunked\/[012]\.ts$/.test(u.pathname)) {
+    if (plainGone) {
+      res.writeHead(403, { "Access-Control-Allow-Origin": "*" });
+      return res.end("gone");
+    }
     const idx = Number(/(\d)\.ts$/.exec(u.pathname)[1]);
     const f = idx === 1 && fs.existsSync(AV_TS) ? AV_TS : path.join(FIX, `seg${idx}.ts`);
     res.writeHead(200, { "Content-Type": "video/mp2t", "Access-Control-Allow-Origin": "*" });
@@ -508,6 +513,20 @@ try {
     /unmuted 1 of 1/.test(unNote) && unSize > 200000 && Math.abs(unDuration - 30) < 1.5 && unRequests.includes("/videos/2926037201/chunked/1.ts"),
     `note="${unNote.trim()}" size=${unSize} duration=${unDuration} chunked=${unRequests.filter((p) => /chunked/.test(p)).slice(0, 3)}`
   );
+  /* originals purged: refuse before writing anything instead of saving a muted file */
+  plainGone = true;
+  const goneBefore = requests.length;
+  await page.click("#vxr-panel .vxr-dl-un");
+  await page.waitForFunction(() => /no unmuted originals/.test(document.querySelector("#vxr-panel .vxr-dl-note").textContent), null, { timeout: 20000 }).catch(() => {});
+  const goneNote = await page.textContent("#vxr-panel .vxr-dl-note");
+  const goneReqs = requests.slice(goneBefore);
+  const goneSaved = fs.existsSync(path.join(BUILD, "dl-3.m4a"));
+  check(
+    "unmuted download refuses when the CDN has no originals",
+    /no unmuted originals/.test(goneNote) && goneReqs.includes("/videos/2926037201/chunked/1.ts") && !goneReqs.some((p) => /audio_only\/seg/.test(p)) && !goneSaved,
+    `note="${goneNote.trim()}" saved=${goneSaved} requests=${goneReqs.filter((p) => /seg\d/.test(p)).length}`
+  );
+  plainGone = false;
   unmutedFixture = false;
 
   /* real signal through the Web Audio graph (beeps every 2 s) */

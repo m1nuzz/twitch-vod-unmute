@@ -733,6 +733,46 @@
         return urls.length === cover.length ? { urls: urls, unmuted: true } : { urls: [url], unmuted: false };
       });
     }
+    /* Probe every muted segment before writing anything. Twitch purges the plain twins
+       hours after the stream, and splicing is then impossible: without this check the
+       "unmuted" download silently produced a fully muted file that looked like a bug. */
+    function dlPreflight(p) {
+      if (!st.unmuted) return Promise.resolve();
+      var muted = [];
+      for (var i = 0; i < p.segments.length; i++) if (p.muted && p.muted[i]) muted.push(i);
+      st.mutedTotal = muted.length;
+      st.available = 0;
+      if (!p.chunk || !muted.length) return Promise.resolve();
+      var next = 0;
+      var done = 0;
+      var found = 0;
+      function worker() {
+        if (next >= muted.length) return Promise.resolve();
+        var idx = muted[next++];
+        return dlSources(p, idx).then(function (picked) {
+          if (picked.unmuted) found++;
+          done++;
+          if (done === muted.length || done % 10 === 0) {
+            dlSend({
+              phase: "run",
+              done: 0,
+              total: p.segments.length,
+              bytes: 0,
+              totalBytes: st.totalBytes,
+              speed: 0,
+              eta: 0,
+              unmuted: { done: found, total: muted.length },
+              note: "checking originals " + done + "/" + muted.length
+            });
+          }
+        });
+      }
+      var jobs = [];
+      for (var w = 0; w < 6 && w < muted.length; w++) jobs.push(worker());
+      return Promise.all(jobs).then(function () {
+        st.available = found;
+      });
+    }
     function consume(urls) {
       if (!st.unmuted) {
         var plain = Promise.resolve();
@@ -848,15 +888,23 @@
           speed: 0,
           eta: 0,
           unmuted: st.unmuted ? { done: 0, total: st.mutedTotal || 0 } : null,
-          note: p.end ? "downloading" : "downloading (recording is still live)"
+          note: st.unmuted ? "checking originals" : p.end ? "downloading" : "downloading (recording is still live)"
         });
-        return step();
+        return dlPreflight(p).then(function () {
+          if (st.unmuted && st.mutedTotal && !st.available) {
+            throw new Error("no unmuted originals left on the CDN (0 of " + st.mutedTotal + " muted segments); Twitch already deleted them — use Download audio or a local file");
+          }
+          return step();
+        });
       })
       .then(function () {
         return st.chain;
       })
       .then(function () {
         if (st.cancelled) throw dlAbortError();
+        if (st.unmuted && st.mutedTotal && !st.recovered) {
+          throw new Error("the CDN originals disappeared during the download (0 of " + st.mutedTotal + " muted segments recovered); nothing was saved");
+        }
         return st.sink.close();
       })
       .then(function () {

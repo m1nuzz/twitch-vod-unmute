@@ -20,7 +20,7 @@ npx playwright install chromium # one-time browser download for e2e
 npm run lint                    # ESLint flat config
 npm run format:check            # Prettier
 npm run test:unit               # 12 sync-engine checks, fake clocks
-npm run test:e2e                # 40 Playwright checks against a fake Twitch
+npm run test:e2e                # 42 Playwright checks against a fake Twitch
 npm test                        # unit + e2e (what CI runs)
 npm run package                 # validates the manifest and builds dist/*.zip
 ```
@@ -70,7 +70,9 @@ isolated-world boundaries reliably.
   plain twins exist only for a subset of muted segments in `chunked` (1080p60/Source) and Twitch
   purges them within hours. Verify the redirect by actually fetching a rewritten URL.
 - **DNR lives in the service worker only.** Desired rules persist in `chrome.storage.local` under
-  `vxrRules` and are re-applied on every SW wake.
+  `vxrRules` and are re-applied on every SW wake. Store the owning VOD id (`vxrRulesVod`) and
+  restore the panel's CDN state on load: rules outlive a page refresh, and without the marker the
+  UI shows "Search CDN for original" while Twitch is silently served the unmuted originals.
 - **Bump the manifest version for every release.** An unpacked extension's SW script stays cached
   in a long-lived Chrome profile until the manifest version changes.
 - **Download transmuxing**: use the default `muxjs.mp4.Transmuxer` (timestamps start at 0). Do not

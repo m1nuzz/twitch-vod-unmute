@@ -145,9 +145,11 @@
       };
       if (!extensionAlive()) return fail();
       try {
-        var got = chrome.storage.local.get("vxr", function (data) {
+        var got = chrome.storage.local.get(["vxr", "vxrRulesVod"], function (data) {
           clearTimeout(guard);
-          finish((data && data.vxr) || {});
+          var prefs = (data && data.vxr) || {};
+          prefs.cdnVod = (data && data.vxrRulesVod) || "";
+          finish(prefs);
         });
         if (got && typeof got.catch === "function") got.catch(fail);
       } catch (e) {
@@ -640,7 +642,7 @@
         return finish({ ok: false, error: "extension context lost — refresh the page" });
       }
       try {
-        var wrote = chrome.storage.local.set({ vxrRules: value }, function () {
+        var wrote = chrome.storage.local.set({ vxrRules: value, vxrRulesVod: value && value.length ? S.vodId : "" }, function () {
           clearTimeout(guard);
           var err = "";
           try {
@@ -969,7 +971,7 @@
     });
     el.cdnBtn = h("button", "vxr-btn vxr-cdn", "Search CDN for original");
     el.cdnBtn.addEventListener("click", searchCdn);
-    el.cdnOff = h("button", "vxr-btn", "Remove CDN mode");
+    el.cdnOff = h("button", "vxr-btn vxr-cdn-off", "Remove CDN mode");
     el.cdnOff.addEventListener("click", clearCdn);
     var cdnPair = h("div", "vxr-pair");
     cdnPair.appendChild(el.cdnBtn);
@@ -1246,6 +1248,11 @@
         loadPrefs().then(function (prefs) {
           S.offset = (prefs.offsets && prefs.offsets[id]) || 0;
           S.fileName = prefs.fileName || S.fileName;
+          if (prefs.cdnVod === id) {
+            S.cdn = "on";
+            S.note = "CDN redirects are active: Twitch plays the recovered originals";
+            render(true);
+          }
           refreshMuteMap();
         });
       }
@@ -1261,6 +1268,10 @@
     S.mode = prefs.mode === "full" ? "full" : "muted";
     S.vodId = currentVodId();
     if (S.vodId && prefs.offsets) S.offset = prefs.offsets[S.vodId] || 0;
+    if (S.vodId && prefs.cdnVod === S.vodId) {
+      S.cdn = "on";
+      S.note = "CDN redirects are active: Twitch plays the recovered originals";
+    }
     buildUI();
     bindPlayer();
     ensureUnmute();

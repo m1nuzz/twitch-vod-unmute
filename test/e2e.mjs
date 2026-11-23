@@ -687,13 +687,59 @@ try {
     `server saw=${JSON.stringify(requests)} fetch -> ${redirected.url} ${redirected.status} "${redirected.body}"`
   );
 
+  /* active CDN redirects must survive a page reload and stay controllable */
+  await page.reload({ waitUntil: "load" });
+  await page.waitForSelector("#vxr-panel", { state: "attached", timeout: 10000 });
+  await page.waitForSelector(".vxr-unmute", { timeout: 10000 });
+  await page.click(".vxr-unmute");
+  const cdnRestored = await page
+    .waitForFunction(() => /CDN mode on/.test(document.querySelector("#vxr-panel .vxr-cdn").textContent), null, { timeout: 8000 })
+    .then(() => true)
+    .catch(() => false);
+  const offShown = await page.isVisible("#vxr-panel .vxr-cdn-off");
+  const stillRedirected = await page.evaluate(async () => {
+    const r = await fetch("/videos/2926037201/chunked/6-muted.ts");
+    return { url: new URL(r.url).pathname, body: await r.text() };
+  });
+  check(
+    "CDN mode survives a page reload",
+    cdnRestored && offShown && stillRedirected.url === "/videos/2926037201/chunked/6.ts" && stillRedirected.body === "ORIGINAL",
+    `btn=${cdnRestored} off=${offShown} fetch=${stillRedirected.url} "${stillRedirected.body}"`
+  );
+
+  await page.click("#vxr-panel .vxr-cdn-off");
+  await page.waitForFunction(() => /Search CDN for original/.test(document.querySelector("#vxr-panel .vxr-cdn").textContent), null, { timeout: 5000 }).catch(() => {});
+  let cleared = null;
+  for (let i = 0; i < 10; i++) {
+    cleared = await page.evaluate(async () => {
+      const r = await fetch("/videos/2926037201/chunked/6-muted.ts");
+      return { url: new URL(r.url).pathname, body: await r.text() };
+    });
+    if (cleared.url === "/videos/2926037201/chunked/6-muted.ts") break;
+    await wait(200);
+  }
+  const offHidden = !(await page.isVisible("#vxr-panel .vxr-cdn-off"));
+  check(
+    "removing CDN mode clears the redirect",
+    /Search CDN for original/.test(await page.textContent("#vxr-panel .vxr-cdn")) &&
+      offHidden &&
+      cleared.url === "/videos/2926037201/chunked/6-muted.ts" &&
+      cleared.body === "MUTED",
+    `fetch=${cleared.url} "${cleared.body}" offHidden=${offHidden}`
+  );
+
+  /* the reload dropped the chosen file; pick it again for the stale-tab test */
+  const picker2 = page.waitForEvent("filechooser");
+  await page.click("#vxr-panel .vxr-pick");
+  await (await picker2).setFiles(path.join(FIX, "stream.mp3"));
+  await page.waitForFunction(() => /replacement on/.test(document.querySelector("#vxr-panel .vxr-status").textContent), null, { timeout: 8000 }).catch(() => {});
+
   /* a reloaded extension leaves this tab with a stale, silently dead script */
   await page.evaluate(() => {
     const v = document.querySelector("video");
     v.currentTime = 20;
     v.play().catch(() => {});
   });
-  await page.click("#vxr-panel .vxr-toggle");
   await page.waitForFunction(() => /replacement on/.test(document.querySelector("#vxr-panel .vxr-status").textContent), null, { timeout: 5000 }).catch(() => {});
   const sw = browser.serviceWorkers().find((w) => w.url().startsWith("chrome-extension://"));
   let reloaded = "no worker";

@@ -24,7 +24,9 @@ download the unmuted audio track as M4A — even while the VOD is still recordin
   when Twitch localizes the Share label.
 - **CDN recovery** — for some muted segments Twitch still has the unmuted twin (`N.ts`) on the
   `chunked` (Source/1080p60) rendition. The extension checks the signed playlists and installs
-  exact per-segment DNR redirects, so the player itself fetches the audible original.
+  exact per-segment DNR redirects, so the player itself fetches the audible original. The active
+  mode is remembered per VOD: after a page refresh the panel still shows **CDN mode on** and the
+  redirects can be removed with one button.
 - **Audio download** — saves the stream's `audio_only` playlist as a single M4A (AAC) with
   timestamps starting at 0. Works for finished VODs and for recordings that are still live.
 - **Unmuted download** — for muted ranges whose 1080p60 originals still exist on the CDN, extracts
@@ -157,7 +159,7 @@ No network request leaves the Twitch page origin for account data; GQL calls are
 npm install
 npm test                  # unit + browser e2e
 npm run test:unit         # 12 sync-engine checks with fake clocks
-npm run test:e2e          # 40 Playwright checks against a fake Twitch
+npm run test:e2e          # 42 Playwright checks against a fake Twitch
 npm run lint
 npm run format:check
 ```

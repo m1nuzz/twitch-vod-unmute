@@ -307,6 +307,27 @@ try {
   await page.click(".vxr-unmute");
   check("Unmute VOD reopens the panel", await page.isVisible("#vxr-panel"));
   check("map total sums durations", segInfo.includes("7:00"), `"${segInfo}" (180+60+180=420s)`);
+
+  /* muted-range jumps: each click lands inside the next/previous range and wraps at the ends */
+  const jumpTo = async (cls) => {
+    await page.click(`#vxr-panel .${cls}`);
+    await wait(350);
+    return page.evaluate(() => document.querySelector("video").currentTime);
+  };
+  const j1 = await jumpTo("vxr-next");
+  check("next jumps into the first muted range", Math.abs(j1 - 12.25) < 1, `t=${j1.toFixed(2)} (range starts 12)`);
+  const j2 = await jumpTo("vxr-next");
+  check("next advances to the following range", Math.abs(j2 - 45.25) < 1, `t=${j2.toFixed(2)} (range starts 45)`);
+  const j3 = await jumpTo("vxr-prev");
+  check("prev returns to the earlier range", Math.abs(j3 - 12.25) < 1, `t=${j3.toFixed(2)}`);
+  const j4 = await jumpTo("vxr-prev");
+  check("prev wraps to the last range", Math.abs(j4 - 70.25) < 1, `t=${j4.toFixed(2)} (range starts 70)`);
+  const j5 = await jumpTo("vxr-next");
+  check("next wraps to the first range", Math.abs(j5 - 12.25) < 1, `t=${j5.toFixed(2)}`);
+  await page.evaluate(() => {
+    document.querySelector("video").currentTime = 2;
+  });
+
   check(
     "cdn base discovered from page timeline",
     requests.some((r) => r.includes("storyboards")),

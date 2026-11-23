@@ -20,7 +20,7 @@ npx playwright install chromium # one-time browser download for e2e
 npm run lint                    # ESLint flat config
 npm run format:check            # Prettier
 npm run test:unit               # 12 sync-engine checks, fake clocks
-npm run test:e2e                # 30 Playwright checks against a fake Twitch
+npm run test:e2e                # 35 Playwright checks against a fake Twitch
 npm test                        # unit + e2e (what CI runs)
 npm run package                 # validates the manifest and builds dist/*.zip
 ```
@@ -60,6 +60,9 @@ isolated-world boundaries reliably.
   `volumechange` when the fake values change (Twitch's volume % tooltip syncs only on that event).
 - **Mute map entries are `{ start, duration }`**, not `offset`. The CDN search's GQL response also
   carries `{ offset, duration }`, but `muteInfo()` normalizes to `start`.
+- **Prev/next jumps land inside the muted range** (`start + 0.25`), step by range index and wrap at
+  both ends. Parking before the range left the player outside the muted moment and made a second
+  click skip the range it was sitting on.
 - **Pointwise mode is the default and is live**: gating is evaluated every frame against
   `vod.currentTime`; a seek in or out of a range must switch the original/stem instantly. If the
   map is not loaded yet, behave as full-track; an empty loaded map means the original only.

@@ -577,28 +577,47 @@
     );
   }
 
+  /* Index of the muted range containing t; overlapping ranges resolve to the latest start. */
+  function segmentIndexAt(t) {
+    var best = -1;
+    for (var i = 0; i < S.segments.length; i++) {
+      var s = S.segments[i];
+      if (t >= s.start && t < s.start + s.duration) best = i;
+    }
+    return best;
+  }
+
   function jumpSegment(dir) {
+    if (!vod || !vod.isConnected) vod = pickVideo();
     if (!vod || !S.segments || !S.segments.length) return;
     var now = vod.currentTime;
-    var target = null;
-    if (dir > 0) {
-      for (var i = 0; i < S.segments.length; i++) {
-        if (S.segments[i].start > now + 0.5) {
-          target = S.segments[i].start;
+    var segs = S.segments;
+    var n = segs.length;
+    var idx = segmentIndexAt(now);
+    var target;
+    if (idx >= 0) {
+      target = segs[(idx + (dir > 0 ? 1 : n - 1)) % n].start;
+    } else if (dir > 0) {
+      target = segs[0].start;
+      for (var i = 0; i < n; i++) {
+        if (segs[i].start > now) {
+          target = segs[i].start;
           break;
         }
       }
-      target = target == null ? S.segments[0].start : target;
     } else {
-      for (var j = S.segments.length - 1; j >= 0; j--) {
-        if (S.segments[j].start < now - 2) {
-          target = S.segments[j].start;
+      target = segs[n - 1].start;
+      for (var j = n - 1; j >= 0; j--) {
+        if (segs[j].start < now) {
+          target = segs[j].start;
           break;
         }
       }
     }
-    if (target == null) return;
-    vod.currentTime = Math.max(0, target - 1.5);
+    /* Park just inside the range: seeking before it left the player outside the muted
+       moment, and a second click skipped the range it was parked in front of. */
+    var limit = Number.isFinite(vod.duration) ? vod.duration - 0.1 : Infinity;
+    vod.currentTime = Math.max(0, Math.min(target + 0.25, limit));
     if (ctrl) ctrl.resetClocks();
   }
 
@@ -1023,11 +1042,13 @@
     el.rowSeg.appendChild(h("span", "vxr-label", "muted"));
     el.segInfo = h("span", "vxr-seg-info", "…");
     el.rowSeg.appendChild(el.segInfo);
-    var prev = h("button", "vxr-btn vxr-mini", "◀");
+    var prev = h("button", "vxr-btn vxr-mini vxr-prev", "◀");
+    prev.title = "Previous muted range";
     prev.addEventListener("click", function () {
       jumpSegment(-1);
     });
-    var next = h("button", "vxr-btn vxr-mini", "▶");
+    var next = h("button", "vxr-btn vxr-mini vxr-next", "▶");
+    next.title = "Next muted range";
     next.addEventListener("click", function () {
       jumpSegment(1);
     });

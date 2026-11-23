@@ -17,7 +17,8 @@ download the unmuted audio track as M4A — even while the VOD is still recordin
 - **Native player controls** — volume, mute and the volume tooltip stay Twitch's own. The original
   `<video>` is silenced behind the scenes, so the player never flips to mute when a file is loaded.
 - **Mute map** — exact muted ranges from Twitch GQL (`muteInfo`), total time, range count and
-  prev/next jumps. Twitch already draws its own marks on the seek bar; the extension adds none.
+  prev/next jumps that land inside each muted range and wrap at either end. Twitch already draws
+  its own marks on the seek bar; the extension adds none.
 - **Launcher pill** — an **Unmute VOD** button cloned from Twitch's Share pill sits next to it and
   opens/closes the panel (the panel starts closed). It is found by the share icon, so it also works
   when Twitch localizes the Share label.
@@ -155,7 +156,7 @@ No network request leaves the Twitch page origin for account data; GQL calls are
 npm install
 npm test                  # unit + browser e2e
 npm run test:unit         # 12 sync-engine checks with fake clocks
-npm run test:e2e          # 30 Playwright checks against a fake Twitch
+npm run test:e2e          # 35 Playwright checks against a fake Twitch
 npm run lint
 npm run format:check
 ```
